@@ -10,4 +10,6 @@ You can edit this file as you like.
     ./packages.dhall
 , sources =
     [ "src/**/*.purs", "test/**/*.purs" ]
+, license = ""
+, repository = "git@github.com:mitchdzugan/purescript-impulse.git"
 }
