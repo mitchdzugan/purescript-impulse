@@ -1,6 +1,6 @@
 "use strict";
 
-const { makeSignal, makeEvent, zipWith, zipWithLazy } = require('ps-frp-impl');
+const { makeSignal, makeEvent, zipWith, zipWithLazy } = require('ps-impulse-impl');
 exports.makeSignal = e => init => () => makeSignal(e, init);
 exports.off = s => s.off;
 exports.makeSignalLazy = e => init => makeSignal(e, init, true);

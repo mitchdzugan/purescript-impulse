@@ -16,7 +16,7 @@
   "dependencies": {
     "dev": "^0.1.3",
     "parcel": "^1.12.4",
-    "ps-frp-impl": "^1.0.0",
+    "ps-impulse-impl": "^1.0.0",
     "snabbdom": "^0.7.3"
   }
 }

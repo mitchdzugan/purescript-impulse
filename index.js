@@ -1,34 +1,30 @@
 var Main = require('./output/Test.Main');
 
+const loaded = new Promise(resolve => { window.onload = resolve; });
+let resolveRoot;
+const root = new Promise(resolve => { resolveRoot = resolve; });
 function main () {
-    /* 
-     Here we could add variables such as 
-     
-     var baseUrl = process.env.BASE_URL;
-
-     Parcel will replace `process.env.BASE_URL` 
-     with the string contents of the BASE_URL environment
-     variable at bundle/build time.  
-     A .env file can also be used to override shell variables
-     for more information, see https://en.parceljs.org/env.html
-
-     These variables can be supplied to the Main.main function,
-     however, you will need to change the type to accept variables, by default it is an Effect.
-     You will probably want to make it a function from String -> Effect ()
-  */
-
-  Main.main();
+	loaded.then(() => { Main.ui(); console.log('resolving root'); resolveRoot(); });
 }
 
 // HMR stuff
 // For more info see: https://parceljs.org/hmr.html
 if (module.hot) {
   module.hot.accept(function () {
-    console.log('Reloaded, running main again');
-    main();
+		root.then(() => {
+			const el = document.getElementById('test');
+			if (el) {
+				el.innerHTML = "<div id='app'></div>";
+			}
+			Main.ui();
+		});
   });
 }
 
 console.log('Starting app');
 
-main();
+if (document.readyState === "complete") {
+	resolveRoot();
+} else {
+	main();
+};

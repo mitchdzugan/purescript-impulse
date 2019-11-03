@@ -1,6 +1,6 @@
 "use strict";
 
-const { makeEvent, joinEvents, adaptEvent } = require('ps-frp-impl');
+const { makeEvent, joinEvents, adaptEvent } = require('ps-impulse-impl');
 
 exports.getA = () => { throw "Kappa!"; };
 exports.makeEvent = (eff) => () => makeEvent(eff);
