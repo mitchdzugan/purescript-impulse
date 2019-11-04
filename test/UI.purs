@@ -32,7 +32,7 @@ scoreDisplay ::
   String -> DOM { clickCounter :: Signal Int | re } c Unit
 scoreDisplay preface = do
   s <- getEnv f_clickCounter
-  s_bind' s \c -> do
+  s_bindDOM' s \c -> do
     label' {} $ text $ show c
     div' {} $ text $ preface <> (show c)
 
@@ -41,18 +41,17 @@ app = do
   div' {} do
     d_button <- button {} $ text "Click"
     s_clicks <- e_reduce (onClick d_button) (\agg _ -> agg + 1) 0
-    s_clicksObj <- s_bind s_clicks \clicks -> pure { clicks }
-    s_div3Obj <- s_dedup =<< s_bind s_clicksObj \({ clicks }) -> pure $ { div3: clicks / 3 }
-    s_bind' s_div3Obj \({ div3 }) -> div' {} do
+    s_clicksObj <- s_bind s_clicks \clicks -> { clicks }
+    s_div3Obj <- s_dedup =<< s_bind s_clicksObj \({ clicks }) -> { div3: clicks / 3 }
+    s_bindDOM' s_div3Obj \({ div3 }) -> div' {} do
       div' {} $ text $ "div3Val: " <> (show div3)
-    s_div3 <- s_bind s_clicks \i -> pure $ i / 3
-    s_sum <- s_flatten =<< s_bind s_clicks \clicks -> do
-      s_bind s_div3 \div3 -> do
-        pure $ clicks + div3
-    s_bind' s_sum \sum -> do
+    s_div3 <- s_bind s_clicks \i -> i / 3
+    s_sum <- s_flatten =<< s_bindDOM s_clicks \clicks -> do
+      s_bind s_div3 \div3 -> clicks + div3
+    s_bindDOM' s_sum \sum -> do
       div' {} $ text $ show sum
-    s_double <- s_bind s_clicks \clicks -> pure $ 2 * clicks
-    s_bind' s_double \double -> text $ "Test: " <> (show double)
+    s_double <- s_bind s_clicks \clicks -> 2 * clicks
+    s_bindDOM' s_double \double -> text $ "Test: " <> (show double)
 
 attachApp :: Effect Unit
 attachApp = do

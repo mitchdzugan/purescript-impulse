@@ -17,11 +17,13 @@ const Tag = (tag, attrs, store) => ({ type: 'TAG', tag, attrs, store });
 const Bind = (chunkId) => ({ type: 'BIND', chunkId });
 
 const makeCollector = () => {
-	const ee = makeEvent();
-	const e = ee
-		.reduce((all) => (curr) => joinEvents(all, curr), makeEvent())
-		.flatMap(e => e);
-	return { e, join: e => ee.push(e) };
+	const e = makeEvent();
+	return {
+		e,
+		join: joine => {
+			joine.consume(val => e.push(val));
+		}
+	};
 };
 
 let makeContext;
@@ -33,7 +35,7 @@ const makeAppStore = (mountPoint) => {
 	const signals = {};
 	const chunks = {};
 	let usedChunks = {};
-	const getOrCreateChunkStore = (chunkId, depth, parents, parentStore, env, appStore, s, sf) => {
+	const getOrCreateChunkStore = (chunkId, depth, parents, parentStore, env, appStore, s, sf, skipRender) => {
 		usedChunks[chunkId] = true;
 		if (chunks[chunkId]) {
 			const store = chunks[chunkId];
@@ -69,10 +71,12 @@ const makeAppStore = (mountPoint) => {
 					res = sf(v)(context);
 				} else {
 					store.do = () => {
-						resE.push(sf(v)(context));
+						const res = sf(v)(context);
+						resE.push(res);
 						store.do = null;
 					};
-					if (!appStore.requestRender(chunkId) && store.do) {
+					const rendering = !skipRender && appStore.requestRender(chunkId);
+					if (!parents[rendering]) {
 						store.do();
 					}
 				}
@@ -80,13 +84,11 @@ const makeAppStore = (mountPoint) => {
 				return res;
 			});
 			const resInit = consumeRes.res;
+			resE.push(resInit);
 			off = consumeRes.off;
-			if (resSignal) {
-				resSignal.off();
-			}
-			resSignal = makeSignal(resE, resInit);
 			return store;
 		};
+		resSignal = makeSignal(resE);
 		store.refresh = refresh;
 		return store.refresh(s, sf);
 	};
@@ -94,7 +96,6 @@ const makeAppStore = (mountPoint) => {
 	let renderCount = 0;
 	const render = () => {
 		renderCount++;
-		console.log({ renderCount });
 		const root = getChunkStore(rootChunkId);
 		curr = h("div", {}, root.toVdomList());
 		patch(prev, curr);
@@ -107,7 +108,7 @@ const makeAppStore = (mountPoint) => {
 	const requestRender = (chunkId) => {
 		if (isRendering) {
 			// TODO maybe run DO on the store
-			return false;
+			return isRendering;
 		}
 		if (timeoutId) {
 			clearTimeout(timeoutId);
@@ -142,6 +143,7 @@ const makeAppStore = (mountPoint) => {
 				}
 				usedChunks = {};
 				chunksToRender.forEach(chunk => {
+					isRendering = chunk;
 					usedChunks[chunk] = true;
 					if (chunkStoresById[chunk] && chunkStoresById[chunk].do) {
 						chunkStoresById[chunk].do();
@@ -149,7 +151,6 @@ const makeAppStore = (mountPoint) => {
 				});
 				Object.keys(requestedChunks).forEach(chunk => {
 					if (!usedChunks[chunk]) {
-						console.log("turning off, ", chunk);
 						if (chunkStoresById[chunk]) {
 							if (chunkStoresById[chunk].do) {
 								chunkStoresById[chunk].do = () => {};
@@ -167,13 +168,13 @@ const makeAppStore = (mountPoint) => {
 			10
 		);
 		timeoutId = myTimeoutId;
-		return true;
+		return false;
 	};
 
 	const getOrCreateSignal = (key, event, reducer, init) => {
 		const currSig = signals[key] || ({ getVal () { return init; } });
 		const newInit = currSig.getVal();
-		const sig = makeSignal(event.reduce(reducer, newInit), newInit);
+		const sig = makeSignal(event.reduce(reducer, newInit), init);
 		signals[key] = sig;
 		currSig.off && currSig.off();
 		return sig;
@@ -260,7 +261,9 @@ makeContext = (env, appStore, chunkStore, parentStore) => {
 	};
 	const flattenSignal = (signalSignal) => {
 		const key = parentStore.grabKey('flatten');
+		const initS = signalSignal.getVal();
 		const e = joinEvents(
+			initS.changed,
 			signalSignal.changed.flatMap(s => s.changed),
 			signalSignal.changed.fmap(s => s.getVal())
 		);
@@ -268,10 +271,10 @@ makeContext = (env, appStore, chunkStore, parentStore) => {
 			key,
 			e,
 			() => a => a,
-			signalSignal.getVal().getVal()
+			initS.getVal()
 		);
 	};
-	const bindSignal = (signal, innerF, doEval = (c => f => f(c))) => {
+	const bindSignal = (signal, innerF, doEval = (c => f => f(c)), skipRender = false) => {
 		const chunkId = parentStore.grabKey('bindSignal');
 		const parentKeys = Object.keys(chunkStore.parents);
 		const childParents = {};
@@ -285,7 +288,8 @@ makeContext = (env, appStore, chunkStore, parentStore) => {
 			env,
 			appStore,
 			signal,
-			v => c => doEval(c)(innerF(v))
+			v => c => doEval(c)(innerF(v)),
+			skipRender
 		);
 		parentStore.push(Bind(chunkId));
 		return newChunkStore.getResSignal();
@@ -295,7 +299,8 @@ makeContext = (env, appStore, chunkStore, parentStore) => {
 		return appStore.getOrCreateSignal(key, event, reducer, init);
 	};
 	const createElement = (tag, attrs, inner, doEval = (c => f => f(c))) => {
-		const store = parentStore.step(tag);
+		const key = parentStore.grabKeyIfPresent();
+		const store = parentStore.step(`${tag}${!key ? '' : `--key-${key}`}`);
 		let log = console.log;
 		log = () => {};
 		const elEvent = makeEvent();
@@ -308,7 +313,6 @@ makeContext = (env, appStore, chunkStore, parentStore) => {
 				postPatch (_, node) { log('postPatch', node); },
 			},
 		};
-		const key = parentStore.grabKeyIfPresent();
 		if (key) {
 			data.key = key;
 		}
@@ -316,7 +320,7 @@ makeContext = (env, appStore, chunkStore, parentStore) => {
 		const childContext = makeContext(env, appStore, chunkStore, store);
 		const res = doEval(childContext)(inner);
 		const mkEvent = (on) => {
-			const resEvent = elEvent.flatMap(el => {
+			return elEvent.flatMap(el => {
 				const el_ons = el._ons || {};
 				if (el_ons[on]) { return el_ons[on]; }
 				const e = adaptEvent(
@@ -327,13 +331,6 @@ makeContext = (env, appStore, chunkStore, parentStore) => {
 				el._ons = el_ons;
 				return e;
 			});
-			resEvent.fmap(domEvent => {
-				const safeDomEvent = domEvent;
-				safeDomEvent.target = domEvent.target || {};
-				safeDomEvent.target.value = (domEvent.target || {}).value;
-				return safeDomEvent;
-			});
-			return resEvent;
 		};
 		return { res, mkEvent };
 	};
@@ -404,7 +401,8 @@ const attach = (elId, f, env, doEval = (c => f => f(c))) => {
 		env,
 		appStore,
 		makeSignal(makeEvent()),
-		() => context => doEval(context)(f)
+		() => context => doEval(context)(f),
+		false
 	);
 	appStore.render();
 };
@@ -438,7 +436,7 @@ exports.grabEventCollectorImpl = C => C.grabEventCollector();
 exports.getRawEnvImpl = C => C.getEnv();
 exports.keyedImpl = C => key => C.keyed(key);
 exports.collectImpl = C => getColl => e => C.joinEvent(getColl, e);
-exports.bindSignalImpl = doEval => C => signal => inner => C.bindSignal(signal, inner, doEval);
+exports.bindSignalImpl = doEval => C => skipRender => signal => inner => C.bindSignal(signal, inner, doEval, skipRender);
 exports.dedupSignalImpl = C => pred => signal => C.dedupSignal(signal, (a, b) => pred(a)(b));
 exports.flattenSignalImpl = C => signalSignal => C.flattenSignal(signalSignal);
 exports.reduceEventImpl = C => e => reducer => init => C.reduceEvent(e, reducer, init);

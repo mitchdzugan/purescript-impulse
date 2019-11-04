@@ -2,7 +2,7 @@ module Impulse.DOM where
 
 import Prim.Row
 import Type.Equality
-import Control.Monad ((<#>))
+import Control.Monad ((<#>), (=<<))
 import Control.Monad.Reader (Reader, ReaderT(..), runReader)
 import Data.Eq
 import Data.Symbol (class IsSymbol, SProxy(..))
@@ -37,7 +37,7 @@ foreign import keyedImpl :: forall a. DOMClass a -> String -> Unit
 
 foreign import collectImpl :: forall a b. DOMClass a -> (a -> EventCollector b) -> Event b -> Unit
 
-foreign import bindSignalImpl :: forall a b c d. (DOMClass a -> d -> c) -> DOMClass a -> Signal b -> (b -> d) -> Signal c
+foreign import bindSignalImpl :: forall a b c d. (DOMClass a -> d -> c) -> DOMClass a -> Boolean -> Signal b -> (b -> d) -> Signal c
 
 foreign import flattenSignalImpl :: forall a b. DOMClass a -> Signal (Signal b) -> Signal b
 
@@ -85,8 +85,8 @@ env = ReaderT (\r -> pure $ fst $ getRawEnvImpl r)
 emitRecordless :: forall e c a. (c -> EventCollector a) -> Event a -> DOM e c Unit
 emitRecordless getColl event = ReaderT (\r -> pure $ collectImpl r (\rawEnv -> getColl $ snd rawEnv) event)
 
-s_bind :: forall e c a b. Signal a -> (a -> DOM e c b) -> DOM e c (Signal b)
-s_bind signal inner = ReaderT (\r -> pure $ bindSignalImpl runDOM r signal inner)
+s_bindDOM :: forall e c a b. Signal a -> (a -> DOM e c b) -> DOM e c (Signal b)
+s_bindDOM signal inner = ReaderT (\r -> pure $ bindSignalImpl runDOM r false signal inner)
 
 s_flatten :: forall e c a. Signal (Signal a) -> DOM e c (Signal a)
 s_flatten ss = ReaderT (\r -> pure $ flattenSignalImpl r ss)
@@ -130,10 +130,16 @@ attach' id env dom = do
   _ <- attach id env dom
   pure unit
 
-s_bind' :: forall e c a b. Signal a -> (a -> DOM e c b) -> DOM e c Unit
-s_bind' signal inner = do
-  _ <- s_bind signal inner
+s_bindDOM' :: forall e c a b. Signal a -> (a -> DOM e c b) -> DOM e c Unit
+s_bindDOM' signal inner = do
+  _ <- s_bindDOM signal inner
   pure unit
+
+s_bind :: forall e c a b. Signal a -> (a -> b) -> DOM e c (Signal b)
+s_bind signal inner = ReaderT (\r -> pure $ bindSignalImpl runDOM r true signal \v -> pure $ inner v)
+
+s_bindAndFlatten :: forall e c a b. Signal a -> (a -> DOM e c (Signal b)) -> DOM e c (Signal b)
+s_bindAndFlatten signal inner = s_flatten =<< s_bindDOM signal inner
 
 withEnv' :: forall e1 e2 c a. e2 -> DOM e2 c a -> DOM e1 c Unit
 withEnv' env inner = do
