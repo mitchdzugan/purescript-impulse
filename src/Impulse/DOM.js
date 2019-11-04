@@ -10,8 +10,6 @@ const {
 	joinEvents,
 	adaptEvent,
 	makeSignal,
-	pauseEventSystem,
-	unpauseEventSystem,
 } = require('ps-impulse-impl');
 
 const Leaf = (text) => ({ type: 'LEAF', text });
@@ -20,7 +18,6 @@ const Bind = (chunkId) => ({ type: 'BIND', chunkId });
 
 const makeCollector = () => {
 	const ee = makeEvent();
-	ee.ignorePauses();
 	const e = ee
 		.reduce((all) => (curr) => joinEvents(all, curr), makeEvent())
 		.flatMap(e => e);
@@ -45,7 +42,7 @@ const makeAppStore = (mountPoint) => {
 			Object.keys(parents).forEach(chunkId => {
 				store.parents[chunkId] = true;
 			});
-			return store.refresh(s);
+			return store.refresh(s, sf);
 		}
 		let resSignal;
 		let off = () => {};
@@ -61,7 +58,7 @@ const makeAppStore = (mountPoint) => {
 		};
 		chunks[chunkId] = store;
 		const resE = makeEvent();
-		const refresh = (s) => {
+		const refresh = (s, sf) => {
 			off();
 			let isFirst = true;
 			const consumeRes = s.consume(v => {
@@ -75,18 +72,23 @@ const makeAppStore = (mountPoint) => {
 						resE.push(sf(v)(context));
 						store.do = null;
 					};
-					appStore.requestRender(chunkId);
+					if (!appStore.requestRender(chunkId) && store.do) {
+						store.do();
+					}
 				}
 				isFirst = false;
 				return res;
 			});
 			const resInit = consumeRes.res;
 			off = consumeRes.off;
+			if (resSignal) {
+				resSignal.off();
+			}
 			resSignal = makeSignal(resE, resInit);
 			return store;
 		};
 		store.refresh = refresh;
-		return store.refresh(s);
+		return store.refresh(s, sf);
 	};
 	const getChunkStore = chunkId => chunks[chunkId];
 	let renderCount = 0;
@@ -101,15 +103,19 @@ const makeAppStore = (mountPoint) => {
 
 	let timeoutId;
 	let requestedChunks = {};
+	let isRendering = false;
 	const requestRender = (chunkId) => {
+		if (isRendering) {
+			// TODO maybe run DO on the store
+			return false;
+		}
 		if (timeoutId) {
 			clearTimeout(timeoutId);
-		} else {
-			setTimeout(pauseEventSystem);
 		}
 		requestedChunks[chunkId] = true;
 		const myTimeoutId = setTimeout(
 			() => {
+				isRendering = true;
 				let chunks = Object.keys(requestedChunks);
 				const chunkStoresById = {};
 				chunks.forEach(chunk => {
@@ -137,23 +143,31 @@ const makeAppStore = (mountPoint) => {
 				usedChunks = {};
 				chunksToRender.forEach(chunk => {
 					usedChunks[chunk] = true;
-					chunkStoresById[chunk].do();
+					if (chunkStoresById[chunk] && chunkStoresById[chunk].do) {
+						chunkStoresById[chunk].do();
+					}
 				});
 				Object.keys(requestedChunks).forEach(chunk => {
 					if (!usedChunks[chunk]) {
 						console.log("turning off, ", chunk);
-						chunkStoresById[chunk].do = () => {};
-						chunkStoresById[chunk].off();
+						if (chunkStoresById[chunk]) {
+							if (chunkStoresById[chunk].do) {
+								chunkStoresById[chunk].do = () => {};
+							}
+							chunkStoresById[chunk].off();
+							delete chunkStoresById[chunk];
+						}
 					}
 				});
 				requestedChunks = {};
 				timeoutId = null;
 				render();
-				unpauseEventSystem();
+				isRendering = false;
 			},
 			10
 		);
 		timeoutId = myTimeoutId;
+		return true;
 	};
 
 	const getOrCreateSignal = (key, event, reducer, init) => {
@@ -227,8 +241,37 @@ makeContext = (env, appStore, chunkStore, parentStore) => {
 	const keyed = (key) => {
 		parentStore.setKey(key);
 	};
+	const dedupSignal = (signal, pred) => {
+		const key = parentStore.grabKey('dedup');
+		let prev = signal.getVal();
+		const e = signal.changed.filter(curr => {
+			if (pred(prev, curr)) {
+				return false;
+			}
+			prev = curr;
+			return true;
+		});
+		return appStore.getOrCreateSignal(
+			key,
+			e,
+			() => a => a,
+			signal.getVal()
+		);
+	};
+	const flattenSignal = (signalSignal) => {
+		const key = parentStore.grabKey('flatten');
+		const e = joinEvents(
+			signalSignal.changed.flatMap(s => s.changed),
+			signalSignal.changed.fmap(s => s.getVal())
+		);
+		return appStore.getOrCreateSignal(
+			key,
+			e,
+			() => a => a,
+			signalSignal.getVal().getVal()
+		);
+	};
 	const bindSignal = (signal, innerF, doEval = (c => f => f(c))) => {
-		signal.ignorePauses();
 		const chunkId = parentStore.grabKey('bindSignal');
 		const parentKeys = Object.keys(chunkStore.parents);
 		const childParents = {};
@@ -284,13 +327,12 @@ makeContext = (env, appStore, chunkStore, parentStore) => {
 				el._ons = el_ons;
 				return e;
 			});
-			resEvent.ignorePauses();
 			resEvent.fmap(domEvent => {
 				const safeDomEvent = domEvent;
 				safeDomEvent.target = domEvent.target || {};
 				safeDomEvent.target.value = (domEvent.target || {}).value;
 				return safeDomEvent;
-			})
+			});
 			return resEvent;
 		};
 		return { res, mkEvent };
@@ -336,6 +378,8 @@ makeContext = (env, appStore, chunkStore, parentStore) => {
 		keyed,
 		joinEvent,
 		bindSignal,
+		dedupSignal,
+		flattenSignal,
 		reduceEvent,
 		collect,
 		createElement,
@@ -395,6 +439,8 @@ exports.getRawEnvImpl = C => C.getEnv();
 exports.keyedImpl = C => key => C.keyed(key);
 exports.collectImpl = C => getColl => e => C.joinEvent(getColl, e);
 exports.bindSignalImpl = doEval => C => signal => inner => C.bindSignal(signal, inner, doEval);
+exports.dedupSignalImpl = C => pred => signal => C.dedupSignal(signal, (a, b) => pred(a)(b));
+exports.flattenSignalImpl = C => signalSignal => C.flattenSignal(signalSignal);
 exports.reduceEventImpl = C => e => reducer => init => C.reduceEvent(e, reducer, init);
 exports.trapImpl = doEval => C => modEnv => getColl => innerF => C.collect(modEnv, getColl, innerF, doEval);
 exports.createElementImpl = doEval => C => tag => attrs => inner => {
@@ -416,7 +462,7 @@ exports.stashDOMImpl = doEval => makeRes => C => inner => {
 };
 exports.renderStashedDOMImpl = C => stash => C.renderStashedDOM(stash);
 exports.withRawEnvImpl = doEval => C => env => inner => C.withEnv(env, inner, doEval);
-exports.preemptEventImpl = doEval => C => resToE => fInner => C.preemptEvent(fInner, resToE, doEval)
+exports.preemptEventImpl = doEval => C => resToE => fInner => C.preemptEvent(fInner, resToE, doEval);
 exports.attachImpl = doEval => elId => f => env => () => attach(elId, f, env, doEval);
 exports.innerRes = ({ res }) => res;
 exports.onClick = ({ mkEvent }) => mkEvent('click');

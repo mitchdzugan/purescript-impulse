@@ -2,8 +2,8 @@ module Test.UI where
 
 import Data.Array
 import Data.Maybe
-import Debug.Trace
 import Prelude hiding (div)
+import Control.Monad ((=<<))
 import Data.Symbol (class IsSymbol, SProxy(..))
 import Effect (Effect)
 import Effect.Class.Console (log)
@@ -13,6 +13,7 @@ import Impulse.FRP.Event as Event
 import Impulse.FRP.Signal (Signal)
 import Impulse.FRP.Signal as Signal
 import Impulse.DOM
+import Impulse.DOM.Tags
 
 f_clickCounter = SProxy :: SProxy "clickCounter"
 
@@ -31,26 +32,27 @@ scoreDisplay ::
   String -> DOM { clickCounter :: Signal Int | re } c Unit
 scoreDisplay preface = do
   s <- getEnv f_clickCounter
-  bindSignal' s \c -> do
+  s_bind' s \c -> do
     label' {} $ text $ show c
     div' {} $ text $ preface <> (show c)
 
 app :: DOM {} {} Unit
 app = do
-  section' { className: "sectionHeader" } do
-    d_div <- div {} $ text "Header"
-    _ <- eff $ Event.consume (\e -> trace e \_ -> pure unit) $ onClick d_div
-    s <- reduceEvent (onClick d_div) (\agg _ -> agg + 1) 0
-    bindSignal' s \c -> div' {} $ text $ "Clicked it: " <> (show c)
-    a' { href: "https://google.com" } $ text "link"
-    listenAndReduce f_clickCounter (\agg curr -> agg + curr) 0 do
-      b <- button {} $ text "click me for a point!"
-      emit f_clickCounter $ Event.fmap (\_ -> 1) $ onClick b
-      modScoreButton 2
-      scoreDisplay "Your Score "
-      modScoreButton 3
-      modScoreButton (-1)
-      div' {} $ text "Footer"
+  div' {} do
+    d_button <- button {} $ text "Click"
+    s_clicks <- e_reduce (onClick d_button) (\agg _ -> agg + 1) 0
+    s_clicksObj <- s_bind s_clicks \clicks -> pure { clicks }
+    s_div3Obj <- s_dedup =<< s_bind s_clicksObj \({ clicks }) -> pure $ { div3: clicks / 3 }
+    s_bind' s_div3Obj \({ div3 }) -> div' {} do
+      div' {} $ text $ "div3Val: " <> (show div3)
+    s_div3 <- s_bind s_clicks \i -> pure $ i / 3
+    s_sum <- s_flatten =<< s_bind s_clicks \clicks -> do
+      s_bind s_div3 \div3 -> do
+        pure $ clicks + div3
+    s_bind' s_sum \sum -> do
+      div' {} $ text $ show sum
+    s_double <- s_bind s_clicks \clicks -> pure $ 2 * clicks
+    s_bind' s_double \double -> text $ "Test: " <> (show double)
 
 attachApp :: Effect Unit
 attachApp = do
