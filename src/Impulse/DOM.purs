@@ -33,7 +33,7 @@ foreign import grabEventCollectorImpl :: forall a b. DOMClass a -> EventCollecto
 
 foreign import getRawEnvImpl :: forall a. DOMClass a -> a
 
-foreign import keyedImpl :: forall a. DOMClass a -> String -> Unit
+foreign import keyedImpl :: forall a b c. (DOMClass a -> c -> b) -> DOMClass a -> String -> c -> b
 
 foreign import collectImpl :: forall a b. DOMClass a -> (a -> EventCollector b) -> Event b -> Unit
 
@@ -73,8 +73,8 @@ attach id env dom = attachImpl runDOM id dom $ Tuple env {}
 eff :: forall e c a. Effect a -> DOM e c a
 eff effect = ReaderT (\r -> pure $ effImpl r effect)
 
-keyed :: forall e c. String -> DOM e c Unit
-keyed s = ReaderT (\r -> pure $ keyedImpl r s)
+keyed :: forall e c a. String -> DOM e c a -> DOM e c a
+keyed s inner = ReaderT (\r -> pure $ keyedImpl runDOM r s inner)
 
 grabEventCollector :: forall e c a. DOM e c (EventCollector a)
 grabEventCollector = ReaderT (\r -> pure $ grabEventCollectorImpl r)
@@ -277,3 +277,5 @@ foreign import innerRes :: forall a. ElRes a -> a
 foreign import onClick :: forall a b c. ElRes a -> Event { target :: { value :: String | c } | b }
 
 foreign import onChange :: forall a b c. ElRes a -> Event { target :: { value :: String | c } | b }
+
+foreign import onKeyUp :: forall a b c. ElRes a -> Event { target :: { value :: String | c } | b }

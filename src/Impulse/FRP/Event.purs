@@ -2,6 +2,7 @@ module Impulse.FRP.Event where
 
 import Prelude
 import Effect (Effect)
+import Data.Functor
 
 foreign import data Event :: Type -> Type
 
@@ -28,3 +29,6 @@ foreign import adaptEvent :: forall a b. ((a -> Effect Unit) -> Effect b) -> (b 
 foreign import timer :: Int -> Event Int
 
 foreign import never :: forall a. Event a
+
+instance functorEvent :: Functor Event where
+  map = fmap
