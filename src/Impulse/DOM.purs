@@ -10,7 +10,7 @@ import Data.Tuple (Tuple(..), fst, snd)
 import Effect (Effect)
 import Impulse.FRP.Event (Event)
 import Impulse.FRP.Signal (Signal)
-import Prelude (Unit, bind, pure, unit, ($))
+import Prelude (Unit, bind, pure, unit, ($), identity, class Show, show)
 import Prim.Row (class Lacks, class Cons)
 import Record as Record
 
@@ -120,10 +120,20 @@ withEnv env inner = do
 e_preempt :: forall e c a b. (b -> Event a) -> (Event a -> DOM e c b) -> DOM e c b
 e_preempt resToE innerF = ReaderT (\r -> pure $ preemptEventImpl runDOM r resToE innerF)
 
-e_preempt' :: forall e c a b. (b -> Event a) -> (Event a -> DOM e c b) -> DOM e c Unit
-e_preempt' resToE innerF = do
-  _ <- e_preempt resToE innerF
-  pure unit
+e_preempt' :: forall e c a. (Event a -> DOM e c (Event a)) -> DOM e c (Event a)
+e_preempt' innerF = do
+  e_preempt identity innerF
+
+s_preempt :: forall e c a b. a -> (b -> Event a) -> (Signal a -> DOM e c b) -> DOM e c b
+s_preempt init resToE innerF = do
+  e_preempt resToE \e -> do
+    s <- e_reduce e (\agg curr -> curr) init
+    innerF s
+
+s_preempt' :: forall e c a. a -> (Signal a -> DOM e c (Event a)) -> DOM e c (Signal a)
+s_preempt' init innerF = do
+  e <- s_preempt init identity innerF
+  e_reduce e (\agg curr -> curr) init
 
 attach' :: forall env a. String -> env -> DOM env {} a -> Effect Unit
 attach' id env dom = do
@@ -134,6 +144,14 @@ s_bindDOM' :: forall e c a b. Signal a -> (a -> DOM e c b) -> DOM e c Unit
 s_bindDOM' signal inner = do
   _ <- s_bindDOM signal inner
   pure unit
+
+s_bindKeyedDOM :: forall e c a b. (Show a) => Signal a -> (a -> DOM e c b) -> DOM e c (Signal b)
+s_bindKeyedDOM signal inner = do
+  s_bindDOM signal \val -> keyed (show val) $ inner val
+
+s_bindKeyedDOM' :: forall e c a b. (Show a) => Signal a -> (a -> DOM e c b) -> DOM e c Unit
+s_bindKeyedDOM' signal inner = do
+  s_bindDOM' signal \val -> keyed (show val) $ inner val
 
 s_bind :: forall e c a b. Signal a -> (a -> b) -> DOM e c (Signal b)
 s_bind signal inner = ReaderT (\r -> pure $ bindSignalImpl runDOM r true signal \v -> pure $ inner v)
