@@ -1,3 +1,5 @@
+"use strict";
+
 const snabbdom = require('snabbdom');
 let i = 0;
 const patch = snabbdom.init([
@@ -434,13 +436,16 @@ makeContext = (env, appStore, chunkStore, parentStore) => {
 		const res = doEval(childContext)(inner);
 		// TODO clean up this.
 		// TODO the el._e.clear is the thing that is good
-		const mkEvent = (on) => {
+		const mkEvent = (on, preventDefault = false) => {
 			return elEvent.flatMap(([el]) => {
 				const myRc = el.rc;
 				const el_ons = el._ons || {};
 				const e = adaptEvent(
 					push => {
 						const f = e => {
+							if (preventDefault) {
+								e.preventDefault();
+							}
 							el._push(e);
 						};
 						el._softListening = true;
@@ -470,16 +475,6 @@ makeContext = (env, appStore, chunkStore, parentStore) => {
 		return { res, mkEvent };
 	};
 	const leaf = (text) => parentStore.push(Leaf(text));
-	const stashDOM = (inner, doEval = (c => f => f(c))) => {
-		const fauxStore = parentStore.fresh();
-		const fauxContext = makeContext(env, appStore, chunkStore, fauxStore);
-		const res = doEval(fauxContext)(inner);
-		return { res, children: fauxStore.children };
-	};
-	const renderStashedDOM = ({ children }) => {
-		parentStore.concat(children);
-		return;
-	};
 	const withEnv = (env, inner, doEval=(c => f => f(c))) => (
 		doEval(makeContext(env, appStore, chunkStore, parentStore))(inner)
 	);
@@ -516,12 +511,88 @@ makeContext = (env, appStore, chunkStore, parentStore) => {
 		collect,
 		createElement,
 		leaf,
-		stashDOM,
-		renderStashedDOM,
 		withEnv,
 		grabEventCollector,
 		preemptEvent,
 	};
+};
+
+/**
+ * Initial SSR Implementation
+ * eventually would like to be able to
+ *   a) wait for signal to reach certain value before rendering
+ *   b) attach event listeners that queue events for them to be
+ *      processed when the client attaches itself.
+ * TODO
+ *   [] make sure there are no memory leaks from not being
+ *      careful about discarding single value signals
+ */
+const makeSSRContext = (env_) => {
+	let markup = "";
+	let CTXT;
+	let env = env_;
+	const getEnv = () => env;
+	const keyed = (key, inner, doEval = (c => f => f(c))) => (
+		doEval(CTXT)(inner)
+	);
+	const joinEvent = () => {};
+	const bindSignal = (signal, innerF, doEval = (c => f => f(c))) => (
+		makeSignal(
+			makeEvent(),
+			doEval(CTXT)(innerF(signal.getVal()))
+		)
+	);
+	const dedupSignal = (s) => s;
+	const flattenSignal = (ss) => ss.getVal();
+	const reduceEvent = (e, r, init) => (
+		makeSignal(makeEvent(), init)
+	);
+	const collect = (modEnv, getCollector, innerF, doEval = (c => f => f(c))) => (
+		doEval(CTXT)(innerF(makeEvent()))
+	);
+	const createElement = (tag, attrs, inner, doEval = (c => f => f(c))) => {
+		markup += `<${tag}`;
+		Object.keys(attrs).forEach(attr => {
+			markup += ` ${attr}="${attrs[attr]}"`;
+		});
+		markup += ">";
+		const res = doEval(CTXT)(inner);
+		markup += `</${tag}>`;
+		return { res, mkEvent () { return makeEvent(); } };
+	};
+	const leaf = (text) => { markup += text; };
+	const withEnv = (innerEnv, inner, doEval = (c => f => f(c))) => {
+		const currEnv = env;
+		env = innerEnv;
+		const res = doEval(CTXT)(inner);
+		env = currEnv;
+		return res;
+	};
+	const grabEventCollector = () => {};
+	const preemptEvent = (innerF, resToE, doEval = (c => f => f(c))) => (
+		doEval(CTXT)(innerF(makeEvent()))
+	);
+	const getMarkup = () => markup;
+
+	CTXT = {
+		getEnv,
+		keyed,
+		joinEvent,
+		bindSignal,
+		dedupSignal,
+		flattenSignal,
+		reduceEvent,
+		collect,
+		createElement,
+		leaf,
+		withEnv,
+		grabEventCollector,
+		preemptEvent,
+
+		getMarkup
+	};
+
+	return CTXT;
 };
 
 const attach = (elId, f, env, doEval = (c => f => f(c))) => {
@@ -541,30 +612,12 @@ const attach = (elId, f, env, doEval = (c => f => f(c))) => {
 	);
 	appStore.render();
 };
-const main = () => {
-	const test = (I) => {
-		const stashed = I.stashDOM(I => {
-			I.createElement("span", {}, I => I.leaf("Goodbye!"));
-			return "test";
-		});
-		I.createElement("section", {}, (I) => {
-			I.createElement("span", {}, I => I.leaf("Hello!"));
-			const res = I.createElement("div", {}, I => I.leaf(stashed.res));
-			const s = I.reduceEvent(
-				res.onClick, (agg => () => agg+1), 0
-			);
-			I.bindSignal(s, c => I => {
-				I.createElement(
-					"div", {}, I => I.leaf(`Clicked ${c} times!!!`)
-				);
-			});
-			I.renderStashedDOM(stashed);
-		});
-	};
-	attach("app", test, null);
-};
 
-exports.main = main;
+const toMarkup = (f, env, doEval = (c => f => f(c))) => {
+	const ctxt = makeSSRContext(env);
+	doEval(ctxt)(f);
+	return ctxt.getMarkup();
+};
 
 exports.effImpl = C => eff => eff();
 exports.grabEventCollectorImpl = C => C.grabEventCollector();
@@ -589,15 +642,16 @@ exports.createElementImpl = doEval => C => tag => attrs => inner => {
 	return C.createElement(ftag, attrs, inner, doEval);
 };
 exports.textImpl = C => text => C.leaf(text);
-exports.stashDOMImpl = doEval => makeRes => C => inner => {
-	const res = C.stashDOM(inner, doEval);
-	return makeRes(res.res)(res.children);
-};
-exports.renderStashedDOMImpl = C => stash => C.renderStashedDOM(stash);
 exports.withRawEnvImpl = doEval => C => env => inner => C.withEnv(env, inner, doEval);
 exports.preemptEventImpl = doEval => C => resToE => fInner => C.preemptEvent(fInner, resToE, doEval);
 exports.attachImpl = doEval => elId => f => env => () => attach(elId, f, env, doEval);
+exports.toMarkupImpl = doEval => f => env => () => toMarkup(f, env, doEval);
 exports.innerRes = ({ res }) => res;
+
 exports.onClick = ({ mkEvent }) => mkEvent('click');
 exports.onChange = ({ mkEvent }) => mkEvent('change');
 exports.onKeyUp = ({ mkEvent }) => mkEvent('keyup');
+
+exports.onClickPreventDefault = ({ mkEvent }) => mkEvent('click', true);
+exports.onChangePreventDefault = ({ mkEvent }) => mkEvent('change', true);
+exports.onKeyUpPreventDefault = ({ mkEvent }) => mkEvent('keyup', true);

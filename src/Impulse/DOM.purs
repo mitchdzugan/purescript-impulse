@@ -14,18 +14,11 @@ import Prelude (Unit, bind, pure, unit, ($), identity, class Show, show)
 import Prim.Row (class Lacks, class Cons)
 import Record as Record
 
-foreign import main :: Effect Unit
-
 foreign import data EventCollector :: Type -> Type
 
 foreign import data DOMClass :: Type -> Type
 
-foreign import data DOMStash :: Type
-
 foreign import data ElRes :: Type -> Type
-
-data StashRes a
-  = StashRes a DOMStash
 
 foreign import effImpl :: forall a b. DOMClass a -> Effect b -> b
 
@@ -51,15 +44,13 @@ foreign import createElementImpl :: forall a b c attr. (DOMClass a -> c -> b) ->
 
 foreign import textImpl :: forall a. DOMClass a -> String -> Unit
 
-foreign import stashDOMImpl :: forall a b c. (DOMClass a -> c -> b) -> (b -> DOMStash -> StashRes b) -> DOMClass a -> c -> StashRes b
-
-foreign import renderStashedDOMImpl :: forall a b. DOMClass a -> StashRes b -> Unit
-
 foreign import withRawEnvImpl :: forall a b c d. (DOMClass b -> d -> c) -> DOMClass a -> b -> d -> c
 
 foreign import preemptEventImpl :: forall a b c d. (DOMClass a -> c -> b) -> DOMClass a -> (b -> Event d) -> (Event d -> c) -> b
 
 foreign import attachImpl :: forall a b c. (DOMClass a -> b -> c) -> String -> b -> a -> Effect c
+
+foreign import toMarkupImpl :: forall a b c. (DOMClass a -> b -> c) -> b -> a -> Effect String
 
 type DOM env collecting
   = Reader (DOMClass (Tuple env collecting))
@@ -69,6 +60,9 @@ runDOM domClass dom = runReader dom domClass
 
 attach :: forall env a. String -> env -> DOM env {} a -> Effect a
 attach id env dom = attachImpl runDOM id dom $ Tuple env {}
+
+toMarkup :: forall env a. env -> DOM env {} a -> Effect String
+toMarkup env dom = toMarkupImpl runDOM dom $ Tuple env {}
 
 eff :: forall e c a. Effect a -> DOM e c a
 eff effect = ReaderT (\r -> pure $ effImpl r effect)
@@ -105,12 +99,6 @@ createElement tag attrs inner = ReaderT (\r -> pure $ createElementImpl runDOM r
 
 text :: forall e c. String -> DOM e c Unit
 text s = ReaderT (\r -> pure $ textImpl r s)
-
-stashDOM :: forall e c a. DOM e c a -> DOM e c (StashRes a)
-stashDOM inner = ReaderT (\r -> pure $ stashDOMImpl runDOM StashRes r inner)
-
-renderStashedDOM :: forall e c a. StashRes a -> DOM e c Unit
-renderStashedDOM stash = ReaderT (\r -> pure $ renderStashedDOMImpl r stash)
 
 withEnv :: forall e1 e2 c a. e2 -> DOM e2 c a -> DOM e1 c a
 withEnv env inner = do
@@ -297,3 +285,9 @@ foreign import onClick :: forall a b c. ElRes a -> Event { target :: { value :: 
 foreign import onChange :: forall a b c. ElRes a -> Event { target :: { value :: String | c } | b }
 
 foreign import onKeyUp :: forall a b c. ElRes a -> Event { target :: { value :: String | c } | b }
+
+foreign import onClickPreventDefault :: forall a b c. ElRes a -> Event { target :: { value :: String | c } | b }
+
+foreign import onChangePreventDefault :: forall a b c. ElRes a -> Event { target :: { value :: String | c } | b }
+
+foreign import onKeyUpPreventDefault :: forall a b c. ElRes a -> Event { target :: { value :: String | c } | b }

@@ -1,5 +1,6 @@
 module Test.UI where
 
+import Debug.Trace
 import Data.Array
 import Data.Maybe
 import Prelude hiding (div)
@@ -44,9 +45,10 @@ app = do
     s_clicksObj <- s_bind s_clicks \clicks -> { clicks }
     s_div3Obj <- s_dedup =<< s_bind s_clicksObj \({ clicks }) -> { div3: clicks / 3 }
     s_bindDOM' s_div3Obj \({ div3 }) -> div' {} do
+      trace "rendering div3Val" \_ -> pure unit
       div' {} $ text $ "div3Val: " <> (show div3)
     s_div3 <- s_bind s_clicks \i -> i / 3
-    s_sum <- s_flatten =<< s_bindDOM s_clicks \clicks -> do
+    s_sum <- s_bindAndFlatten s_clicks \clicks -> do
       s_bind s_div3 \div3 -> clicks + div3
     s_bindDOM' s_sum \sum -> do
       div' {} $ text $ show sum
@@ -55,4 +57,6 @@ app = do
 
 attachApp :: Effect Unit
 attachApp = do
+  markup <- toMarkup {} app
+  trace { markup } \_ -> pure unit
   attach "app" {} app
