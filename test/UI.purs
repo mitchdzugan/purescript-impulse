@@ -42,6 +42,10 @@ app = do
   div' {} do
     d_button <- button {} $ text "Click"
     s_clicks <- e_reduce (onClick d_button) (\agg _ -> agg + 1) 0
+    e_2 <- eff $ flip Event.mapEff (onClick d_button)
+               $ \e push -> do log "hello!!!!"
+                               push { e, t: 2 }
+    _ <- eff $ flip Event.consume e_2 $ \{ t } -> log $ show { t }
     s_clicksObj <- s_bind s_clicks \clicks -> { clicks }
     s_div3Obj <- s_dedup =<< s_bind s_clicksObj \({ clicks }) -> { div3: clicks / 3 }
     s_bindDOM' s_div3Obj \({ div3 }) -> div' {} do

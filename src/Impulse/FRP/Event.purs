@@ -6,8 +6,6 @@ import Data.Functor
 
 foreign import data Event :: Type -> Type
 
-foreign import getA :: forall a. Show a => Int -> a
-
 foreign import makeEvent :: forall a. Effect (Effect Unit) -> Effect (Event a)
 
 foreign import push :: forall a. a -> Event a -> Effect Unit
@@ -29,6 +27,12 @@ foreign import adaptEvent :: forall a b. ((a -> Effect Unit) -> Effect b) -> (b 
 foreign import timer :: Int -> Event Int
 
 foreign import never :: forall a. Event a
+
+foreign import mapEff ::
+  forall a b.
+  (a -> (b -> Effect Unit) -> Effect Unit) ->
+  Event a ->
+  Effect (Event b)
 
 instance functorEvent :: Functor Event where
   map = fmap
