@@ -5,9 +5,11 @@ import Type.Equality
 import Control.Monad ((<#>), (=<<))
 import Control.Monad.Reader (Reader, ReaderT(..), runReader)
 import Data.Eq
+import Data.Maybe as M
 import Data.Symbol (class IsSymbol, SProxy(..))
 import Data.Tuple (Tuple(..), fst, snd)
 import Effect (Effect)
+import Impulse.DOM.Attrs
 import Impulse.FRP.Event (Event)
 import Impulse.FRP.Signal (Signal)
 import Prelude (Unit, bind, pure, unit, ($), identity, class Show, show)
@@ -40,7 +42,7 @@ foreign import reduceEventImpl :: forall a b c. DOMClass a -> Event b -> (c -> b
 
 foreign import trapImpl :: forall a b c d e. (DOMClass b -> e -> d) -> DOMClass a -> (a -> b) -> (b -> EventCollector c) -> (Event c -> e) -> d
 
-foreign import createElementImpl :: forall a b c attr. (DOMClass a -> c -> b) -> DOMClass a -> String -> { | attr } -> c -> ElRes b
+foreign import createElementImpl :: forall a b c d. (DOMClass a -> c -> b) -> (d -> M.Maybe d -> d) -> DOMClass a -> String -> DOMAttrs -> c -> ElRes b
 
 foreign import textImpl :: forall a. DOMClass a -> String -> Unit
 
@@ -94,11 +96,14 @@ e_reduce event reducer init = ReaderT (\r -> pure $ reduceEventImpl r event redu
 listenRecordless :: forall e c1 c2 a b. (c1 -> c2) -> (c2 -> EventCollector a) -> (Event a -> DOM e c2 b) -> DOM e c1 b
 listenRecordless modColls getColl inner = ReaderT (\r -> pure $ trapImpl runDOM r (\rawEnv -> Tuple (fst rawEnv) (modColls (snd rawEnv))) (\rawEnv -> getColl $ snd rawEnv) inner)
 
-createElement :: forall e c a attrs. String -> { | attrs } -> DOM e c a -> DOM e c (ElRes a)
-createElement tag attrs inner = ReaderT (\r -> pure $ createElementImpl runDOM r tag attrs inner)
+createElement :: forall e c a. String -> Attrs Unit -> DOM e c a -> DOM e c (ElRes a)
+createElement tag attrs inner = ReaderT (\r -> pure $ createElementImpl runDOM M.fromMaybe r tag (mkAttrs attrs) inner)
 
 text :: forall e c. String -> DOM e c Unit
 text s = ReaderT (\r -> pure $ textImpl r s)
+
+dnil :: forall e c. DOM e c Unit
+dnil = pure unit
 
 withEnv :: forall e1 e2 c a. e2 -> DOM e2 c a -> DOM e1 c a
 withEnv env inner = do

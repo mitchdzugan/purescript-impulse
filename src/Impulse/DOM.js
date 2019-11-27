@@ -629,7 +629,7 @@ exports.dedupSignalImpl = C => pred => signal => C.dedupSignal(signal, (a, b) =>
 exports.flattenSignalImpl = C => signalSignal => C.flattenSignal(signalSignal);
 exports.reduceEventImpl = C => e => reducer => init => C.reduceEvent(e, reducer, init);
 exports.trapImpl = doEval => C => modEnv => getColl => innerF => C.collect(modEnv, getColl, innerF, doEval);
-exports.createElementImpl = doEval => C => tag => attrs => inner => {
+exports.createElementImpl = doEval => fromMaybe => C => tag => attrs => inner => {
 	let ftag = tag;
 	if (attrs.className) {
 		ftag += `.${attrs.className}`;
