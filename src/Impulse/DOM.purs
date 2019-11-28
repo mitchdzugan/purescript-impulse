@@ -1,5 +1,6 @@
 module Impulse.DOM where
 
+import Prelude
 import Prim.Row
 import Type.Equality
 import Control.Monad ((<#>), (=<<))
@@ -10,11 +11,15 @@ import Data.Symbol (class IsSymbol, SProxy(..))
 import Data.Tuple (Tuple(..), fst, snd)
 import Effect (Effect)
 import Impulse.DOM.Attrs
-import Impulse.FRP.Event (Event)
+import Impulse.FRP.Event (Event, makeFrom)
 import Impulse.FRP.Signal (Signal)
 import Prelude (Unit, bind, pure, unit, ($), identity, class Show, show)
 import Prim.Row (class Lacks, class Cons)
 import Record as Record
+import Web.UIEvent.MouseEvent as ME
+import Web.UIEvent.KeyboardEvent as KE
+import Web.Event.Event as WE
+import DOM.HTML.Indexed as HTML
 
 foreign import data EventCollector :: Type -> Type
 
@@ -285,14 +290,42 @@ getEnv proxy = do
 
 foreign import innerRes :: forall a. ElRes a -> a
 
-foreign import onClick :: forall a b c. ElRes a -> Event { target :: { value :: String | c } | b }
+foreign import onClick :: forall a b c. ElRes a -> Event ME.MouseEvent
 
-foreign import onChange :: forall a b c. ElRes a -> Event { target :: { value :: String | c } | b }
+foreign import onChange :: forall a b c. ElRes a -> Event WE.Event
 
-foreign import onKeyUp :: forall a b c. ElRes a -> Event { target :: { value :: String | c } | b }
+foreign import onKeyUp :: forall a b c. ElRes a -> Event KE.KeyboardEvent
 
-foreign import onClickPreventDefault :: forall a b c. ElRes a -> Event { target :: { value :: String | c } | b }
+class WebEventable e where
+  toWebEvent :: e -> WE.Event
 
-foreign import onChangePreventDefault :: forall a b c. ElRes a -> Event { target :: { value :: String | c } | b }
+instance webEventableMouseEvent :: WebEventable ME.MouseEvent where
+  toWebEvent = ME.toEvent
 
-foreign import onKeyUpPreventDefault :: forall a b c. ElRes a -> Event { target :: { value :: String | c } | b }
+instance webEventableKeyboardEvent :: WebEventable KE.KeyboardEvent where
+  toWebEvent = KE.toEvent
+
+instance webEventableWebEvent :: WebEventable WE.Event where
+  toWebEvent e = e
+
+withStopPropagation :: forall e. WebEventable e => Event e -> Event e
+withStopPropagation e = makeFrom e \v push -> do WE.stopPropagation $ toWebEvent v
+                                                 push v
+
+withPreventDefault :: forall e. WebEventable e => Event e -> Event e
+withPreventDefault e = makeFrom e \v push -> do WE.preventDefault $ toWebEvent v
+                                                push v
+
+foreign import targetImpl ::
+  ({ | HTML.HTMLinput } ->
+  M.Maybe { | HTML.HTMLinput }) ->
+  M.Maybe { | HTML.HTMLinput } ->
+  WE.Event ->
+  Effect (M.Maybe { | HTML.HTMLinput })
+
+target :: WE.Event -> Effect (M.Maybe { | HTML.HTMLinput })
+target e = targetImpl M.Just M.Nothing e
+
+domEventValue :: forall e. WebEventable e => Event e -> Event (M.Maybe String)
+domEventValue e = makeFrom e $ \we push -> do m_target <- target $ toWebEvent we
+                                              push $ m_target <#> _.value

@@ -396,8 +396,9 @@ makeContext = (env, appStore, chunkStore, parentStore) => {
 				create (_, node) { log('create', node); node.elm.rc = 0; elEvent.push([node.elm]); },
 				insert (node) { log('insert', node); },
 				update (_, node) {
-					if (node.elm._e) {
-						node.elm._e.clear();
+					if (node.elm) {
+						const _ons = node.elm._ons || {}; // _e.clear();
+						Object.values(_ons).forEach(e => e.clear());
 					}
 					const currRc = node.elm.rc || 0;
 					node.elm.rc = currRc + 1;
@@ -436,39 +437,52 @@ makeContext = (env, appStore, chunkStore, parentStore) => {
 		const res = doEval(childContext)(inner);
 		// TODO clean up this.
 		// TODO the el._e.clear is the thing that is good
-		const mkEvent = (on, preventDefault = false) => {
+		const mkEvent = (on) => {
 			return elEvent.flatMap(([el]) => {
 				const myRc = el.rc;
-				const el_ons = el._ons || {};
+				const _ons = el._ons || {};
+				if (_ons[on]) {
+					return _ons[on];
+				}
 				const e = adaptEvent(
 					push => {
 						const f = e => {
-							if (preventDefault) {
-								e.preventDefault();
-							}
-							el._push(e);
+							const _push = el._push || {};
+							const push = _push[on] || (() => {});
+							push(e);
 						};
-						el._softListening = true;
-						if (!el._listening) {
-							el._listening = true;
-							el._f = f;
+						const _softListening = el._softListening || {};
+						_softListening[on] = true;
+						el._softListening = _softListening;
+						const _listening = el._listening || {};
+						if (!_listening[on]) {
+							_listening[on] = true;
+							e._listening = _listening;
 							el.addEventListener(on, f);
 						}
-						el._push = push;
+						const _push = el._push || {};
+						_push[on] = push;
+						el._push = _push;
 						return f;
 					},
 					push => {
-						el._softListening = false;
+						const _softListening = el._softListening || {};
+						_softListening[on] = false;
+						el._softListening = _softListening;
 						setTimeout(() => {
-							if (el._softListening) {
+							const _softListening = el._softListening || {};
+							if (_softListening[on]) {
 								return;
 							}
-							el._listening = false;
+							const _listening = el._listening || {};
+							_listening[on] = false;
+							el._listening = _listening;
 							el.removeEventListener(on, push);
 						}, 100);
 					}
 				);
-				el._e = e;
+				_ons[on] = e;
+				el._ons = _ons;
 				return e;
 			});
 		};
@@ -575,6 +589,7 @@ const makeSSRContext = (env_) => {
 	const getMarkup = () => markup;
 
 	CTXT = {
+		IS_SERVER: true,
 		getEnv,
 		keyed,
 		joinEvent,
@@ -619,6 +634,8 @@ const toMarkup = (f, env, doEval = (c => f => f(c))) => {
 	return ctxt.getMarkup();
 };
 
+const isOneWord = s => typeof s === 'string' && !s.trim().includes(" ");
+
 exports.effImpl = C => eff => eff();
 exports.grabEventCollectorImpl = C => C.grabEventCollector();
 exports.getRawEnvImpl = C => C.getEnv();
@@ -629,14 +646,30 @@ exports.dedupSignalImpl = C => pred => signal => C.dedupSignal(signal, (a, b) =>
 exports.flattenSignalImpl = C => signalSignal => C.flattenSignal(signalSignal);
 exports.reduceEventImpl = C => e => reducer => init => C.reduceEvent(e, reducer, init);
 exports.trapImpl = doEval => C => modEnv => getColl => innerF => C.collect(modEnv, getColl, innerF, doEval);
-exports.createElementImpl = doEval => fromMaybe => C => tag => attrs => inner => {
+exports.createElementImpl = doEval => fromMaybe => C => tag => raw_attrs => inner => {
 	let ftag = tag;
-	if (attrs.className) {
-		ftag += `.${attrs.className}`;
+	const { IS_SERVER } = C;
+	const attrs = {};
+	Object.keys(raw_attrs).forEach(attr => {
+		const val = fromMaybe(null)(raw_attrs[attr]);
+		if (val == null) {
+			return;
+		}
+		attrs[attr] = val;
+	});
+
+	const baseClass = attrs.class || '';
+	const otherClass = attrs.className || '';
+	const fullClass = `${baseClass} ${otherClass}`;
+	delete attrs.className;
+	attrs.class = fullClass.trim();
+
+	if (attrs.class && !IS_SERVER && isOneWord(attrs.class)) {
+		ftag += `.${attrs.class}`;
 		delete attrs.className;
 	}
-	if (attrs.id) {
-		ftag += `#${attrs.id}`;
+	if (attrs.id && !IS_SERVER && isOneWord(attrs.id)) {
+		ftag += `#${attrs.id.trim()}`;
 		delete attrs.id;
 	}
 	return C.createElement(ftag, attrs, inner, doEval);
@@ -652,6 +685,6 @@ exports.onClick = ({ mkEvent }) => mkEvent('click');
 exports.onChange = ({ mkEvent }) => mkEvent('change');
 exports.onKeyUp = ({ mkEvent }) => mkEvent('keyup');
 
-exports.onClickPreventDefault = ({ mkEvent }) => mkEvent('click', true);
-exports.onChangePreventDefault = ({ mkEvent }) => mkEvent('change', true);
-exports.onKeyUpPreventDefault = ({ mkEvent }) => mkEvent('keyup', true);
+exports.targetImpl = just => nothing => e => () => (
+	e.target ? just(e.target) : nothing
+);

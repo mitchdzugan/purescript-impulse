@@ -807,14 +807,14 @@ strong_ attrs inner = createElement "strong" attrs inner <#> innerRes
 strong' :: forall e c a. Attrs Unit -> DOM e c a -> DOM e c Unit
 strong' attrs inner = createElement "strong" attrs inner <#> (\_ -> unit)
 
-style :: forall e c a. Attrs Unit -> DOM e c a -> DOM e c (ElRes a)
-style attrs inner = createElement "style" attrs inner
+d_style :: forall e c a. Attrs Unit -> DOM e c a -> DOM e c (ElRes a)
+d_style attrs inner = createElement "style" attrs inner
 
-style_ :: forall e c a. Attrs Unit -> DOM e c a -> DOM e c a
-style_ attrs inner = createElement "style" attrs inner <#> innerRes
+d_style_ :: forall e c a. Attrs Unit -> DOM e c a -> DOM e c a
+d_style_ attrs inner = createElement "style" attrs inner <#> innerRes
 
-style' :: forall e c a. Attrs Unit -> DOM e c a -> DOM e c Unit
-style' attrs inner = createElement "style" attrs inner <#> (\_ -> unit)
+d_style' :: forall e c a. Attrs Unit -> DOM e c a -> DOM e c Unit
+d_style' attrs inner = createElement "style" attrs inner <#> (\_ -> unit)
 
 sub :: forall e c a. Attrs Unit -> DOM e c a -> DOM e c (ElRes a)
 sub attrs inner = createElement "sub" attrs inner
