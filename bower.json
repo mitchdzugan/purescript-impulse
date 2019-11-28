@@ -17,6 +17,7 @@
         "purescript-arrays": "^v5.3.1",
         "purescript-console": "^v4.2.0",
         "purescript-debug": "^v4.0.0",
+        "purescript-dom-indexed": "^v7.0.0",
         "purescript-effect": "^v2.0.1",
         "purescript-psci-support": "^v4.0.0",
         "purescript-record": "^v2.0.1",
