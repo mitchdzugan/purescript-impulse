@@ -1,20 +1,15 @@
 module Impulse.DOM where
 
 import Prelude
-import Prim.Row
-import Type.Equality
-import Control.Monad ((<#>), (=<<))
+import Prim.Row (class Cons, class Lacks, class Union)
 import Control.Monad.Reader (Reader, ReaderT(..), runReader)
-import Data.Eq
 import Data.Maybe as M
-import Data.Symbol (class IsSymbol, SProxy(..))
+import Data.Symbol (class IsSymbol, SProxy)
 import Data.Tuple (Tuple(..), fst, snd)
 import Effect (Effect)
-import Impulse.DOM.Attrs
+import Impulse.DOM.Attrs (Attrs, DOMAttrs, mkAttrs)
 import Impulse.FRP.Event (Event, makeFrom)
 import Impulse.FRP.Signal (Signal)
-import Prelude (Unit, bind, pure, unit, ($), identity, class Show, show)
-import Prim.Row (class Lacks, class Cons)
 import Record as Record
 import Web.UIEvent.MouseEvent as ME
 import Web.UIEvent.KeyboardEvent as KE
@@ -66,10 +61,10 @@ runDOM :: forall e c a. DOMClass (Tuple e c) -> DOM e c a -> a
 runDOM domClass dom = runReader dom domClass
 
 attach :: forall env a. String -> env -> DOM env {} a -> Effect a
-attach id env dom = attachImpl runDOM id dom $ Tuple env {}
+attach id localEnv dom = attachImpl runDOM id dom $ Tuple localEnv {}
 
 toMarkup :: forall env a. env -> DOM env {} a -> Effect String
-toMarkup env dom = toMarkupImpl runDOM dom $ Tuple env {}
+toMarkup localEnv dom = toMarkupImpl runDOM dom $ Tuple localEnv {}
 
 eff :: forall e c a. Effect a -> DOM e c a
 eff effect = ReaderT (\r -> pure $ effImpl r effect)
@@ -111,9 +106,9 @@ dnil :: forall e c. DOM e c Unit
 dnil = pure unit
 
 withEnv :: forall e1 e2 c a. e2 -> DOM e2 c a -> DOM e1 c a
-withEnv env inner = do
+withEnv localEnv inner = do
   Tuple _ c <- ReaderT (\r -> pure $ getRawEnvImpl r)
-  ReaderT (\r -> pure $ withRawEnvImpl runDOM r (Tuple env c) inner)
+  ReaderT (\r -> pure $ withRawEnvImpl runDOM r (Tuple localEnv c) inner)
 
 e_preempt :: forall e c a b. (b -> Event a) -> (Event a -> DOM e c b) -> DOM e c b
 e_preempt resToE innerF = ReaderT (\r -> pure $ preemptEventImpl runDOM r resToE innerF)
@@ -134,8 +129,8 @@ s_preempt' init innerF = do
   e_reduce e (\agg curr -> curr) init
 
 attach' :: forall env a. String -> env -> DOM env {} a -> Effect Unit
-attach' id env dom = do
-  _ <- attach id env dom
+attach' id localEnv dom = do
+  _ <- attach id localEnv dom
   pure unit
 
 s_bindDOM' :: forall e c a b. Signal a -> (a -> DOM e c b) -> DOM e c Unit
@@ -158,8 +153,8 @@ s_bindAndFlatten :: forall e c a b. Signal a -> (a -> DOM e c (Signal b)) -> DOM
 s_bindAndFlatten signal inner = s_flatten =<< s_bindDOM signal inner
 
 withEnv' :: forall e1 e2 c a. e2 -> DOM e2 c a -> DOM e1 c Unit
-withEnv' env inner = do
-  _ <- withEnv env inner
+withEnv' localEnv inner = do
+  _ <- withEnv localEnv inner
   pure unit
 
 withAlteredEnv :: forall e1 e2 c a. (e1 -> e2) -> DOM e2 c a -> DOM e1 c a
@@ -290,11 +285,11 @@ getEnv proxy = do
 
 foreign import innerRes :: forall a. ElRes a -> a
 
-foreign import onClick :: forall a b c. ElRes a -> Event ME.MouseEvent
+foreign import onClick :: forall a. ElRes a -> Event ME.MouseEvent
 
-foreign import onChange :: forall a b c. ElRes a -> Event WE.Event
+foreign import onChange :: forall a. ElRes a -> Event WE.Event
 
-foreign import onKeyUp :: forall a b c. ElRes a -> Event KE.KeyboardEvent
+foreign import onKeyUp :: forall a. ElRes a -> Event KE.KeyboardEvent
 
 class WebEventable e where
   toWebEvent :: e -> WE.Event

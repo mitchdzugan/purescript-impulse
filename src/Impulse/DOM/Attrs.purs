@@ -4,7 +4,6 @@ import Prelude
 import Control.Monad.State as S
 import Data.List as L
 import Data.Maybe as M
-import Debug.Trace
 
 type DOMAttrs = { className :: M.Maybe String
                 , style :: M.Maybe String
@@ -32,14 +31,14 @@ cn :: String -> S.State (L.List String) Unit
 cn s = S.modify_ $ L.Cons s
 
 className :: String -> Attrs Unit
-className cn =
-  S.modify_ _ { className = M.Just cn }
+className classAsStr =
+  S.modify_ _ { className = M.Just classAsStr }
 
 styles :: S.State (L.List String) Unit -> Attrs Unit
 styles m = do
   let styleList = S.execState m L.Nil
-      style = L.foldl (\a b -> b <> "; " <> a) "" styleList
-  S.modify_ _ { style = M.Just style }
+      el_style = L.foldl (\a b -> b <> "; " <> a) "" styleList
+  S.modify_ _ { style = M.Just el_style }
 
 style :: String -> String -> S.State (L.List String) Unit
 style prop val = S.modify_ $ L.Cons $ prop <> ": " <> val
@@ -52,7 +51,7 @@ href :: String -> Attrs Unit
 href uri =
   S.modify_ _ { href = M.Just uri }
 
-rows :: forall a. Int -> Attrs Unit
+rows :: Int -> Attrs Unit
 rows n =
   S.modify_ _ { rows = M.Just n }
 

@@ -1,8 +1,8 @@
 module Impulse.DOM.Tags where
 
 import Prelude (unit, Unit, (<#>))
-import Impulse.DOM
-import Impulse.DOM.Attrs
+import Impulse.DOM (DOM, ElRes, createElement, innerRes)
+import Impulse.DOM.Attrs (Attrs)
 
 {-
 "a","abbr","acronym","address","applet","area","article","aside","audio","b","base","basefont","bdo",

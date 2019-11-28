@@ -1,8 +1,7 @@
 module Impulse.FRP.Event where
 
-import Prelude
+import Prelude (class Functor, Unit)
 import Effect (Effect)
-import Data.Functor
 
 foreign import data Event :: Type -> Type
 
