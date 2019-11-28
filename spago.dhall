@@ -15,6 +15,6 @@ You can edit this file as you like.
     ]
 , packages = ./packages.dhall
 , sources = [ "src/**/*.purs", "test/**/*.purs" ]
-, license = ""
+, license = "MIT"
 , repository = "git@github.com:mitchdzugan/purescript-impulse.git"
 }
