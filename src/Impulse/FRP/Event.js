@@ -10,7 +10,7 @@ exports.filter = f => e => e.filter(f);
 exports.reduce = f => init => e => e.reduce(f, init);
 exports.flatMap = f => e => e.flatMap(f);
 exports.join = e1 => e2 => joinEvents(e1, e2);
-exports.mapEff = f_eff => e => () => {
+exports.makeFrom = e => f_eff => {
 	return e.mapEff((v, push) => f_eff(v)(p => () => push(p))());
 };
 exports.adaptEvent = sub => unsub => () => adaptEvent(

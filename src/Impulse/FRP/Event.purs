@@ -28,11 +28,11 @@ foreign import timer :: Int -> Event Int
 
 foreign import never :: forall a. Event a
 
-foreign import mapEff ::
+foreign import makeFrom ::
   forall a b.
-  (a -> (b -> Effect Unit) -> Effect Unit) ->
   Event a ->
-  Effect (Event b)
+  (a -> (b -> Effect Unit) -> Effect Unit) ->
+  Event b
 
 instance functorEvent :: Functor Event where
   map = fmap
