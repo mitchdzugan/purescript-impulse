@@ -457,7 +457,7 @@ makeContext = (env, appStore, chunkStore, parentStore) => {
 						const _listening = el._listening || {};
 						if (!_listening[on]) {
 							_listening[on] = true;
-							e._listening = _listening;
+							el._listening = _listening;
 							el.addEventListener(on, f);
 						}
 						const _push = el._push || {};
