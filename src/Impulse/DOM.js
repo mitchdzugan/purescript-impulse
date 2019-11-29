@@ -682,8 +682,20 @@ exports.toMarkupImpl = doEval => f => env => () => toMarkup(f, env, doEval);
 exports.innerRes = ({ res }) => res;
 
 exports.onClick = ({ mkEvent }) => mkEvent('click');
+exports.onDoubleClick = ({ mkEvent }) => mkEvent('doubleclick');
 exports.onChange = ({ mkEvent }) => mkEvent('change');
 exports.onKeyUp = ({ mkEvent }) => mkEvent('keyup');
+exports.onKeyDown = ({ mkEvent }) => mkEvent('keydown');
+exports.onKeyPress = ({ mkEvent }) => mkEvent('keypress');
+exports.onMouseDown = ({ mkEvent }) => mkEvent('mousedown');
+exports.onMouseEnter = ({ mkEvent }) => mkEvent('mouseenter');
+exports.onMouseLeave = ({ mkEvent }) => mkEvent('mouseleave');
+exports.onMouseMove = ({ mkEvent }) => mkEvent('mousemove');
+exports.onMouseOut = ({ mkEvent }) => mkEvent('mouseout');
+exports.onMouseOver = ({ mkEvent }) => mkEvent('mouseover');
+exports.onMouseUp = ({ mkEvent }) => mkEvent('mouseup');
+exports.onTransitionEnd = ({ mkEvent }) => mkEvent('transitionend');
+exports.onScroll = ({ mkEvent }) => mkEvent('scroll');
 
 exports.targetImpl = just => nothing => e => () => (
 	e.target ? just(e.target) : nothing
