@@ -12,6 +12,7 @@ You can edit this file as you like.
     , "psci-support"
     , "record"
     , "transformers"
+    , "unordered-collections"
     ]
 , packages = ./packages.dhall
 , sources = [ "src/**/*.purs", "test/**/*.purs" ]

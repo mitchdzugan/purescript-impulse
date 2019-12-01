@@ -5,6 +5,8 @@ import Prim.Row (class Cons, class Lacks, class Union)
 import Control.Monad.Reader (Reader, ReaderT(..), runReader)
 import Data.Maybe as M
 import Data.Symbol (class IsSymbol, SProxy)
+import Data.Hashable as H
+import Data.Eq as Eq
 import Data.Tuple (Tuple(..), fst, snd)
 import Effect (Effect)
 import Impulse.DOM.Attrs (Attrs, DOMAttrs, mkAttrs)
@@ -21,6 +23,8 @@ foreign import data EventCollector :: Type -> Type
 foreign import data DOMClass :: Type -> Type
 
 foreign import data ElRes :: Type -> Type
+
+foreign import data DOMStash :: Type -> Type
 
 foreign import effImpl :: forall a b. DOMClass a -> Effect b -> b
 
@@ -54,11 +58,29 @@ foreign import attachImpl :: forall a b c. (DOMClass a -> b -> c) -> String -> b
 
 foreign import toMarkupImpl :: forall a b c. (DOMClass a -> b -> c) -> b -> a -> Effect String
 
+foreign import stashDOMImpl :: forall a b c. (DOMClass a -> c -> b) -> DOMClass a -> c -> DOMStash b
+
+foreign import memoImpl :: forall a b c d. H.Hashable d => Eq.Eq d => (d -> d -> Boolean) -> (d -> Int) -> (DOMClass a -> c -> b) -> DOMClass a -> d -> c -> b
+
+foreign import applyDOMImpl :: forall a b. DOMClass a -> DOMStash b -> Unit
+
 type DOM env collecting
   = Reader (DOMClass (Tuple env collecting))
 
 runDOM :: forall e c a. DOMClass (Tuple e c) -> DOM e c a -> a
 runDOM domClass dom = runReader dom domClass
+
+d_memo :: forall e c a b. H.Hashable a => Eq.Eq a => a -> DOM e c b -> DOM e c b
+d_memo k inner = ReaderT (\r -> pure $ memoImpl (==) (H.hash) runDOM r k inner)
+
+stashDOM :: forall e c a. DOM e c a -> DOM e c (DOMStash a)
+stashDOM inner = ReaderT (\r -> pure $ stashDOMImpl runDOM r inner)
+
+stashDOM_ :: forall e c a. DOM e c a -> DOM e c (DOMStash Unit)
+stashDOM_ inner = stashDOM $ inner <#> const unit
+
+applyDOM :: forall e c a. DOMStash a -> DOM e c Unit
+applyDOM stash = ReaderT (\r -> pure $ applyDOMImpl r stash)
 
 attach :: forall env a. String -> env -> DOM env {} a -> Effect a
 attach id localEnv dom = attachImpl runDOM id dom $ Tuple localEnv {}
@@ -99,6 +121,9 @@ listenRecordless modColls getColl inner = ReaderT (\r -> pure $ trapImpl runDOM 
 createElement :: forall e c a. String -> Attrs Unit -> DOM e c a -> DOM e c (ElRes a)
 createElement tag attrs inner = ReaderT (\r -> pure $ createElementImpl runDOM M.fromMaybe r tag (mkAttrs attrs) inner)
 
+createElement_ :: forall e c a. String -> Attrs Unit -> DOM e c a -> DOM e c Unit
+createElement_ tag attrs inner = createElement tag attrs inner <#> const unit
+
 text :: forall e c. String -> DOM e c Unit
 text s = ReaderT (\r -> pure $ textImpl r s)
 
@@ -113,8 +138,8 @@ withEnv localEnv inner = do
 e_preempt :: forall e c a b. (b -> Event a) -> (Event a -> DOM e c b) -> DOM e c b
 e_preempt resToE innerF = ReaderT (\r -> pure $ preemptEventImpl runDOM r resToE innerF)
 
-e_preempt' :: forall e c a. (Event a -> DOM e c (Event a)) -> DOM e c (Event a)
-e_preempt' innerF = do
+e_preempt_ :: forall e c a. (Event a -> DOM e c (Event a)) -> DOM e c (Event a)
+e_preempt_ innerF = do
   e_preempt identity innerF
 
 s_preempt :: forall e c a b. a -> (b -> Event a) -> (Signal a -> DOM e c b) -> DOM e c b
@@ -123,18 +148,18 @@ s_preempt init resToE innerF = do
     s <- e_reduce e (\agg curr -> curr) init
     innerF s
 
-s_preempt' :: forall e c a. a -> (Signal a -> DOM e c (Event a)) -> DOM e c (Signal a)
-s_preempt' init innerF = do
+s_preempt_ :: forall e c a. a -> (Signal a -> DOM e c (Event a)) -> DOM e c (Signal a)
+s_preempt_ init innerF = do
   e <- s_preempt init identity innerF
   e_reduce e (\agg curr -> curr) init
 
-attach' :: forall env a. String -> env -> DOM env {} a -> Effect Unit
-attach' id localEnv dom = do
+attach_ :: forall env a. String -> env -> DOM env {} a -> Effect Unit
+attach_ id localEnv dom = do
   _ <- attach id localEnv dom
   pure unit
 
-s_bindDOM' :: forall e c a b. Signal a -> (a -> DOM e c b) -> DOM e c Unit
-s_bindDOM' signal inner = do
+s_bindDOM_ :: forall e c a b. Signal a -> (a -> DOM e c b) -> DOM e c Unit
+s_bindDOM_ signal inner = do
   _ <- s_bindDOM signal inner
   pure unit
 
@@ -142,9 +167,9 @@ s_bindKeyedDOM :: forall e c a b. (Show a) => Signal a -> (a -> DOM e c b) -> DO
 s_bindKeyedDOM signal inner = do
   s_bindDOM signal \val -> keyed (show val) $ inner val
 
-s_bindKeyedDOM' :: forall e c a b. (Show a) => Signal a -> (a -> DOM e c b) -> DOM e c Unit
-s_bindKeyedDOM' signal inner = do
-  s_bindDOM' signal \val -> keyed (show val) $ inner val
+s_bindKeyedDOM_ :: forall e c a b. (Show a) => Signal a -> (a -> DOM e c b) -> DOM e c Unit
+s_bindKeyedDOM_ signal inner = do
+  s_bindDOM_ signal \val -> keyed (show val) $ inner val
 
 s_bind :: forall e c a b. Signal a -> (a -> b) -> DOM e c (Signal b)
 s_bind signal inner = ReaderT (\r -> pure $ bindSignalImpl runDOM r true signal \v -> pure $ inner v)
@@ -152,8 +177,8 @@ s_bind signal inner = ReaderT (\r -> pure $ bindSignalImpl runDOM r true signal 
 s_bindAndFlatten :: forall e c a b. Signal a -> (a -> DOM e c (Signal b)) -> DOM e c (Signal b)
 s_bindAndFlatten signal inner = s_flatten =<< s_bindDOM signal inner
 
-withEnv' :: forall e1 e2 c a. e2 -> DOM e2 c a -> DOM e1 c Unit
-withEnv' localEnv inner = do
+withEnv_ :: forall e1 e2 c a. e2 -> DOM e2 c a -> DOM e1 c Unit
+withEnv_ localEnv inner = do
   _ <- withEnv localEnv inner
   pure unit
 
@@ -162,8 +187,8 @@ withAlteredEnv envF inner = do
   curr <- env
   withEnv (envF curr) inner
 
-withAlteredEnv' :: forall e1 e2 c a. (e1 -> e2) -> DOM e2 c a -> DOM e1 c Unit
-withAlteredEnv' envF inner = do
+withAlteredEnv_ :: forall e1 e2 c a. (e1 -> e2) -> DOM e2 c a -> DOM e1 c Unit
+withAlteredEnv_ envF inner = do
   _ <- withAlteredEnv envF inner
   pure unit
 
@@ -181,7 +206,7 @@ listen proxy inner = do
   coll <- grabEventCollector
   listenRecordless (Record.union (Record.insert proxy coll {})) (\(r :: Record cO) -> Record.get proxy r) inner
 
-listen' ::
+listen_ ::
   forall e res a sym cI cSym cO cOSymless.
   IsSymbol sym =>
   Lacks sym () =>
@@ -191,7 +216,7 @@ listen' ::
   SProxy sym ->
   (Event a -> DOM e (Record cO) res) ->
   DOM e (Record cI) Unit
-listen' proxy inner = do
+listen_ proxy inner = do
   _ <- listen proxy inner
   pure unit
 
@@ -217,7 +242,7 @@ upsertEnv ::
   DOM { | eI } c res
 upsertEnv p v inner = withAlteredEnv (Record.union (Record.insert p v {})) inner
 
-upsertEnv' ::
+upsertEnv_ ::
   forall res a sym eI eSym eO eOSymless c.
   IsSymbol sym =>
   Lacks sym () =>
@@ -228,7 +253,7 @@ upsertEnv' ::
   a ->
   DOM { | eO } c res ->
   DOM { | eI } c Unit
-upsertEnv' p v inner = do
+upsertEnv_ p v inner = do
   _ <- upsertEnv p v inner
   pure unit
 
@@ -254,7 +279,7 @@ listenAndReduce proxy reducer init inner = do
     s <- e_reduce e reducer init
     upsertEnv proxy s inner
 
-listenAndReduce' ::
+listenAndReduce_ ::
   forall res a b sym eI eSym eO eOSymless cI cSym cO cOSymless.
   IsSymbol sym =>
   Lacks sym () =>
@@ -269,7 +294,7 @@ listenAndReduce' ::
   b ->
   DOM { | eO } { | cO } res ->
   DOM { | eI } { | cI } Unit
-listenAndReduce' proxy reducer init inner = do
+listenAndReduce_ proxy reducer init inner = do
   _ <- listenAndReduce proxy reducer init inner
   pure unit
 
@@ -282,6 +307,8 @@ getEnv ::
 getEnv proxy = do
   curr <- env
   pure $ Record.get proxy curr
+
+foreign import stashRes :: forall a. DOMStash a -> a
 
 foreign import innerRes :: forall a. ElRes a -> a
 
@@ -336,8 +363,7 @@ withPreventDefault e = makeFrom e \v push -> do WE.preventDefault $ toWebEvent v
                                                 push v
 
 foreign import targetImpl ::
-  ({ | HTML.HTMLinput } ->
-  M.Maybe { | HTML.HTMLinput }) ->
+  ({ | HTML.HTMLinput } -> M.Maybe { | HTML.HTMLinput }) ->
   M.Maybe { | HTML.HTMLinput } ->
   WE.Event ->
   Effect (M.Maybe { | HTML.HTMLinput })

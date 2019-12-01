@@ -13,7 +13,7 @@ type DOMAttrs = { className :: M.Maybe String
                 , rows :: M.Maybe Int
                 , disabled :: M.Maybe Boolean
                 , value :: M.Maybe String
-                , selected :: M.Maybe String
+                , selected :: M.Maybe Boolean
                 }
 type Attrs a = S.State DOMAttrs a
 
@@ -67,9 +67,11 @@ attr_type :: String -> Attrs Unit
 attr_type v =
   S.modify_ _ { type = M.Just v }
 
-selected :: forall a. Show a => a -> Attrs Unit
-selected v =
-  S.modify_ _ { selected = M.Just $ show v }
+selected :: Boolean -> Attrs Unit
+selected true =
+  S.modify_ _ { selected = M.Just $ true }
+selected false =
+  S.modify_ _ { selected = M.Nothing }
 
 mkAttrs :: Attrs Unit -> DOMAttrs
 mkAttrs m =

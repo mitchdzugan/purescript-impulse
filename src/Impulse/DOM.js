@@ -1,4 +1,4 @@
-"use strict";
+'use strict';
 
 const snabbdom = require('snabbdom');
 let i = 0;
@@ -18,17 +18,16 @@ const {
 const Leaf = (text) => ({ type: 'LEAF', text });
 const Tag = (tag, attrs, store) => ({ type: 'TAG', tag, attrs, store });
 const Bind = (chunkId) => ({ type: 'BIND', chunkId });
+const Stash = (stashPath) => ({ type: 'STASH', stashPath });
 
 let collCount = 0;
 const makeCollector = () => {
 	const e = makeEvent();
 	const res = {
 		e,
-		join: joine => {
-			joine.consume(val => {
-				return e.push(val);
-			});
-		}
+		join: joine => (
+			joine.consume(val => e.push(val))
+		)
 	};
 	res.count = collCount++;
 	e.Collcount = res.count;
@@ -38,6 +37,7 @@ const makeCollector = () => {
 let makeContext;
 const rootChunkId = '__root';
 const makeAppStore = (mountPoint) => {
+	const APP_STORE = {};
 	let prev = mountPoint;
 	let curr;
 
@@ -45,6 +45,7 @@ const makeAppStore = (mountPoint) => {
 	let usedChunks = {};
 	let renderLessChunks = {};
 	const getOrCreateChunkStore = (chunkId, depth, parents, parentStore, env, appStore, s, sf, skipRender) => {
+		let emitOffs = [];
 		const signals = {};
 		usedChunks[chunkId] = true;
 		if (chunks[chunkId]) {
@@ -59,8 +60,19 @@ const makeAppStore = (mountPoint) => {
 		let resSignal;
 		let offPlus = () => {};
 		let elStore = parentStore.step(chunkId);
+		let nextStashId = 1;
+		const stashStores = {};
+		const addStashStore = (store) => {
+			const stashId = nextStashId++;
+			stashStores[stashId] = store;
+			return { chunkId, stashId };
+		};
+		const getStashStore = stashId => stashStores[stashId];
 		const store = {
+			addStashStore,
+			getStashStore,
 			s,
+			addEmitOff (off) { emitOffs.push(off); },
 			signals,
 			usedSignals: {},
 			id: chunkId,
@@ -69,6 +81,7 @@ const makeAppStore = (mountPoint) => {
 			toVdomList () { return elStore.toVdomList(); },
 			getResSignal () { return resSignal; },
 			off () {
+				offPlus();
 				Object.keys(store.signals).forEach(key => {
 					store.signals[key].off();
 				});
@@ -89,6 +102,15 @@ const makeAppStore = (mountPoint) => {
 					res = sf(v)(context);
 				} else {
 					store.do = () => {
+						emitOffs.forEach(off => off());
+						emitOffs = [];
+						const isStillActive = !!appStore.getChunkStore(chunkId);
+						if (!isStillActive) {
+							console.log('`do`ing after store deleted! Shutting off store.', { chunkId });
+							store.off();
+							store.off = () => console.log('already off, not doing again.', { chunkId });
+							return;
+						}
 						store.usedSignals = {};
 						const res = sf(v)(context);
 						resE.push(res);
@@ -131,9 +153,10 @@ const makeAppStore = (mountPoint) => {
 	const render = () => {
 		renderCount++;
 		const root = getChunkStore(rootChunkId);
-		curr = h("div", {}, root.toVdomList());
+		curr = h('div', {}, root.toVdomList());
 		patch(prev, curr);
 		prev = curr;
+		window.APP_STORE = APP_STORE;
 	};
 
 	let timeoutId;
@@ -239,14 +262,14 @@ const makeAppStore = (mountPoint) => {
 		return sig;
 	};
 	const markUsed = chunkId => { usedChunks[chunkId] = true; };
-	return {
-		getOrCreateSignal,
-		getOrCreateChunkStore,
-		getChunkStore,
-		render,
-		markUsed,
-		requestRender
-	};
+	APP_STORE.getAllChunks = getAllChunks;
+	APP_STORE.getOrCreateSignal = getOrCreateSignal;
+	APP_STORE.getOrCreateChunkStore = getOrCreateChunkStore;
+	APP_STORE.getChunkStore = getChunkStore;
+	APP_STORE.render = render;
+	APP_STORE.markUsed = markUsed;
+	APP_STORE.requestRender = requestRender;
+	return APP_STORE;
 };
 const makeElStore = (appStore, path) => {
 	let children = [];
@@ -262,16 +285,21 @@ const makeElStore = (appStore, path) => {
 			const store = appStore.getChunkStore(chunkId);
 			return store.toVdomList();
 		},
+		STASH ({ stashPath: { chunkId, stashId } }) {
+			appStore.markUsed(chunkId);
+			const store = appStore.getChunkStore(chunkId);
+			return store.getStashStore(stashId).toVdomList();
+		}
 	};
 	const push = el => children.push(el);
 	const concat = els => { children = children.concat(els); };
 	const fresh = () => makeElStore(appStore, path);
 	const step = (el) => makeElStore(appStore, `${path}:${el}`);
-	const toVdomList = () => (
-		children
+	const toVdomList = () => {
+		return children
 			.map(child => impls[child.type](child))
-			.reduce((agg, children) => agg.concat(children), [])
-	);
+			.reduce((agg, children) => agg.concat(children), []);
+	};
 	const setKey = (k) => { key = k; };
 	const grabKeyIfPresent = () => {
 		const k = key;
@@ -316,9 +344,6 @@ makeContext = (env, appStore, chunkStore, parentStore) => {
 		const key = parentStore.grabKey('dedup');
 		let prev = signal.getVal();
 		const e = signal.changed.filter(curr => {
-			if (!curr) {
-				return false;
-			}
 			if (pred(prev, curr)) {
 				return false;
 			}
@@ -335,7 +360,6 @@ makeContext = (env, appStore, chunkStore, parentStore) => {
 	};
 	const flattenSignal = (signalSignal) => {
 		const key = parentStore.grabKey('flatten');
-		const isOne = key === "$_autogen-div:__root-flatten-0_";
 		const initS = signalSignal.getVal();
 		let off = () => {};
 		let prev = initS;
@@ -349,7 +373,7 @@ makeContext = (env, appStore, chunkStore, parentStore) => {
 			}),
 			signalSignal.changed.fmap(s => s.getVal())
 		);
-		const res = appStore.getOrCreateSignal(
+		return appStore.getOrCreateSignal(
 			chunkStore,
 			key,
 			e,
@@ -357,8 +381,6 @@ makeContext = (env, appStore, chunkStore, parentStore) => {
 			initS.getVal(),
 			true
 		);
-		res.isOne = isOne;
-		return res;
 	};
 	const bindSignal = (signal, innerF, doEval = (c => f => f(c)), skipRender = false) => {
 		const chunkId = parentStore.grabKey('bindSignal');
@@ -501,8 +523,7 @@ makeContext = (env, appStore, chunkStore, parentStore) => {
 	};
 	const joinEvent = (getCollector, event) => {
 		const coll = getCollector(getEnv());
-		coll.join(event);
-		return;
+		chunkStore.addEmitOff(coll.join(event));
 	};
 	const preemptEvent = (fInner, resToE = a => a, doEval = (c => f => f(c))) => {
 		const ee = makeEvent();
@@ -514,7 +535,26 @@ makeContext = (env, appStore, chunkStore, parentStore) => {
 		ee.push(resToE(res));
 		return res;
 	};
+
+	const stashDOM = (inner, doEval = (c => f => f(c))) => {
+		const key = parentStore.grabKey('stash');
+		const stashStore = parentStore.step(key);
+		const R = makeContext(
+			env, appStore, chunkStore, stashStore
+		);
+		const res = doEval(R)(inner);
+		const stashPath = chunkStore.addStashStore(stashStore);
+		return { res, stashPath };
+	};
+
+	const applyDOM = ({ stashPath }) => {
+		parentStore.push(Stash(stashPath));
+		return;
+	};
+
 	return {
+		stashDOM,
+		applyDOM,
 		getEnv,
 		keyed,
 		joinEvent,
@@ -542,7 +582,7 @@ makeContext = (env, appStore, chunkStore, parentStore) => {
  *      careful about discarding single value signals
  */
 const makeSSRContext = (env_) => {
-	let markup = "";
+	let markup = '';
 	let CTXT;
 	let env = env_;
 	const getEnv = () => env;
@@ -569,7 +609,7 @@ const makeSSRContext = (env_) => {
 		Object.keys(attrs).forEach(attr => {
 			markup += ` ${attr}="${attrs[attr]}"`;
 		});
-		markup += ">";
+		markup += '>';
 		const res = doEval(CTXT)(inner);
 		markup += `</${tag}>`;
 		return { res, mkEvent () { return makeEvent(); } };
@@ -588,8 +628,23 @@ const makeSSRContext = (env_) => {
 	);
 	const getMarkup = () => markup;
 
+
+	const stashDOM = (inner, doEval = (c => f => f(c))) => {
+		const CTXT2 = makeSSRContext(env);
+		const res = doEval(CTXT2)(inner);
+		const stashMarkup = CTXT2.getMarkup();
+		return { res, stashMarkup };
+	};
+
+	const applyDOM = ({ stashMarkup }) => {
+		markup += stashMarkup;
+		return;
+	};
+
 	CTXT = {
 		IS_SERVER: true,
+		stashDOM,
+		applyDOM,
 		getEnv,
 		keyed,
 		joinEvent,
@@ -614,7 +669,7 @@ const attach = (elId, f, env, doEval = (c => f => f(c))) => {
 	const el = document.getElementById(elId);
 	const appStore = makeAppStore(el);
 	const parentStore = makeElStore(appStore, 'div');
-	const chunkStore = appStore.getOrCreateChunkStore(
+	appStore.getOrCreateChunkStore(
 		rootChunkId,
 		0,
 		{},
@@ -634,9 +689,9 @@ const toMarkup = (f, env, doEval = (c => f => f(c))) => {
 	return ctxt.getMarkup();
 };
 
-const isOneWord = s => typeof s === 'string' && !s.trim().includes(" ");
+const isOneWord = s => typeof s === 'string' && !s.trim().includes(' ');
 
-exports.effImpl = C => eff => eff();
+exports.effImpl = () => eff => eff();
 exports.grabEventCollectorImpl = C => C.grabEventCollector();
 exports.getRawEnvImpl = C => C.getEnv();
 exports.keyedImpl = doEval => C => key => inner => C.keyed(key, inner, doEval);
@@ -666,7 +721,7 @@ exports.createElementImpl = doEval => fromMaybe => C => tag => raw_attrs => inne
 
 	if (attrs.class && !IS_SERVER && isOneWord(attrs.class)) {
 		ftag += `.${attrs.class}`;
-		delete attrs.className;
+		delete attrs.class;
 	}
 	if (attrs.id && !IS_SERVER && isOneWord(attrs.id)) {
 		ftag += `#${attrs.id.trim()}`;
@@ -680,6 +735,9 @@ exports.preemptEventImpl = doEval => C => resToE => fInner => C.preemptEvent(fIn
 exports.attachImpl = doEval => elId => f => env => () => attach(elId, f, env, doEval);
 exports.toMarkupImpl = doEval => f => env => () => toMarkup(f, env, doEval);
 exports.innerRes = ({ res }) => res;
+exports.stashRes = ({ res }) => res;
+exports.stashDOMImpl = doEval => C => inner => C.stashDOM(inner, doEval);
+exports.applyDOMImpl = C => stash => C.applyDOM(stash);
 
 exports.onClick = ({ mkEvent }) => mkEvent('click');
 exports.onDoubleClick = ({ mkEvent }) => mkEvent('doubleclick');
@@ -700,3 +758,7 @@ exports.onScroll = ({ mkEvent }) => mkEvent('scroll');
 exports.targetImpl = just => nothing => e => () => (
 	e.target ? just(e.target) : nothing
 );
+
+exports.memoImpl = () => {
+    // TODO
+};
