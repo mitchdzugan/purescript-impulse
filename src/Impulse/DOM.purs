@@ -11,7 +11,7 @@ import Data.Tuple (Tuple(..), fst, snd)
 import Effect (Effect)
 import Impulse.DOM.Attrs (Attrs, DOMAttrs, mkAttrs)
 import Impulse.FRP.Event (Event, makeFrom)
-import Impulse.FRP.Signal (Signal)
+import Impulse.FRP.Signal (Signal, val)
 import Record as Record
 import Web.UIEvent.MouseEvent as ME
 import Web.UIEvent.KeyboardEvent as KE
@@ -62,10 +62,23 @@ foreign import stashDOMImpl :: forall a b c. (DOMClass a -> c -> b) -> DOMClass 
 
 foreign import memoImpl :: forall a b c d. H.Hashable d => Eq.Eq d => (d -> d -> Boolean) -> (d -> Int) -> (DOMClass a -> c -> b) -> DOMClass a -> d -> c -> b
 
-foreign import applyDOMImpl :: forall a b. DOMClass a -> DOMStash b -> Unit
+foreign import applyDOMImpl :: forall a b. DOMClass a -> DOMStash b -> b
 
 type DOM env collecting
   = Reader (DOMClass (Tuple env collecting))
+
+foreign import reduceSignalImpl ::
+  forall e c x y z.
+  (z -> DOM e c z) ->
+  (DOMClass (Tuple e c) -> y -> z) ->
+  DOMClass (Tuple e c) ->
+  Signal x ->
+  (z -> x -> z) ->
+  z ->
+  Signal z
+
+s_reduce :: forall e c x y. Signal x -> (y -> x -> y) -> y -> DOM e c (Signal y)
+s_reduce s reducer i = ReaderT (\r -> pure $ reduceSignalImpl pure runDOM r s reducer i)
 
 runDOM :: forall e c a. DOMClass (Tuple e c) -> DOM e c a -> a
 runDOM domClass dom = runReader dom domClass
@@ -79,8 +92,11 @@ stashDOM inner = ReaderT (\r -> pure $ stashDOMImpl runDOM r inner)
 stashDOM_ :: forall e c a. DOM e c a -> DOM e c (DOMStash Unit)
 stashDOM_ inner = stashDOM $ inner <#> const unit
 
-applyDOM :: forall e c a. DOMStash a -> DOM e c Unit
+applyDOM :: forall e c a. DOMStash a -> DOM e c a
 applyDOM stash = ReaderT (\r -> pure $ applyDOMImpl r stash)
+
+applyDOM_ :: forall e c a. DOMStash a -> DOM e c Unit
+applyDOM_ stash = applyDOM stash <#> const unit
 
 attach :: forall env a. String -> env -> DOM env {} a -> Effect a
 attach id localEnv dom = attachImpl runDOM id dom $ Tuple localEnv {}
@@ -257,6 +273,25 @@ upsertEnv_ p v inner = do
   _ <- upsertEnv p v inner
   pure unit
 
+d_readAs ::
+  forall sym e e' c a b res.
+  IsSymbol sym =>
+  Cons sym a e' e =>
+  SProxy sym ->
+  (a -> b) ->
+  Reader b res ->
+  DOM { | e } { | c } res
+d_readAs sym f r = getEnv sym >>= f >>> runReader r >>> pure
+
+d_read ::
+  forall sym e e' c a res.
+  IsSymbol sym =>
+  Cons sym a e' e =>
+  SProxy sym ->
+  Reader a res ->
+  DOM { | e } { | c } res
+d_read sym = d_readAs sym identity
+
 listenAndReduce ::
   forall res a b sym eI eSym eO eOSymless cI cSym cO cOSymless.
   IsSymbol sym =>
@@ -374,3 +409,16 @@ target e = targetImpl M.Just M.Nothing e
 domEventValue :: forall e. WebEventable e => Event e -> Event (M.Maybe String)
 domEventValue e = makeFrom e $ \we push -> do m_target <- target $ toWebEvent we
                                               push $ m_target <#> _.value
+
+s_val :: forall e c a. Signal a -> DOM e c a
+s_val = eff <<< val
+
+foreign import stashEqAble :: forall a. DOMStash a -> String
+
+instance eqDOMStash :: (Eq a) => Eq (DOMStash a)
+  where eq a b = (stashEqAble a) == (stashEqAble b) && (stashRes a) == (stashRes b) 
+
+foreign import elResEqAble :: forall a. ElRes a -> String
+
+instance eqElRes :: (Eq a) => Eq (ElRes a)
+  where eq a b = (elResEqAble a) == (elResEqAble b) && (innerRes a) == (innerRes b)

@@ -20,20 +20,6 @@ const Tag = (tag, attrs, store) => ({ type: 'TAG', tag, attrs, store });
 const Bind = (chunkId) => ({ type: 'BIND', chunkId });
 const Stash = (stashPath) => ({ type: 'STASH', stashPath });
 
-let collCount = 0;
-const makeCollector = () => {
-	const e = makeEvent();
-	const res = {
-		e,
-		join: joine => (
-			joine.consume(val => e.push(val))
-		)
-	};
-	res.count = collCount++;
-	e.Collcount = res.count;
-	return res;
-};
-
 let makeContext;
 const rootChunkId = '__root';
 const makeAppStore = (mountPoint) => {
@@ -57,11 +43,49 @@ const makeAppStore = (mountPoint) => {
 			});
 			return store.refresh(s, sf, env, appStore);
 		}
+		console.log('building chunk store, ', { chunkId });
 		let resSignal;
 		let offPlus = () => {};
 		let elStore = parentStore.step(chunkId);
 		let nextStashId = 1;
 		const stashStores = {};
+
+
+		let collCount = 0;
+		const colls = {};
+		const makeCollector = (key) => {
+			
+			if (colls[key]) {
+				const coll = colls[key];
+				coll.e.track += 1;
+				console.log(coll.es, 'vy conf');
+				coll.es.forEach(({ joine, off }) => { joine.clear(); off(); joine.skip = true; joine.push = (v) => { console.log('ignoring push', { v }); }; });
+				coll.es = [];
+				return coll;
+			}
+			
+			const e = makeEvent();
+			const res = {
+				e,
+				join: joine => {
+					const myTack = e.track;
+					const off = joine.consume(val => {
+						console.log('SKYEEUUP', joine.skip, myTack, e.track, key);
+						if (joine.skip || myTack !== e.track) {
+							return;
+						}
+						return e.push(val);
+					});
+					res.es.push({ joine, off });
+					return off;
+				},
+				es: []
+			};
+			e.track = 0;
+			colls[key] = res;
+			return res;
+		};
+
 		const addStashStore = (store) => {
 			const stashId = nextStashId++;
 			stashStores[stashId] = store;
@@ -86,6 +110,7 @@ const makeAppStore = (mountPoint) => {
 					store.signals[key].off();
 				});
 			},
+			makeCollector
 		};
 		chunks[chunkId] = store;
 		const resE = makeEvent();
@@ -329,7 +354,8 @@ const makeElStore = (appStore, path) => {
 
 makeContext = (env, appStore, chunkStore, parentStore) => {
 	const grabEventCollector = () => {
-		return makeCollector();
+		const key = parentStore.grabKey('eventColl');
+		return chunkStore.makeCollector(key);
 	};
 	const getEnv = () => env;
 	const keyed = (key, inner, doEval = (c => f => f(c))) => {
@@ -344,9 +370,12 @@ makeContext = (env, appStore, chunkStore, parentStore) => {
 		const key = parentStore.grabKey('dedup');
 		let prev = signal.getVal();
 		const e = signal.changed.filter(curr => {
+			console.log({ prev, curr, pred, fore: 'be' });
 			if (pred(prev, curr)) {
+				console.log('after');
 				return false;
 			}
+			console.log('after');
 			prev = curr;
 			return true;
 		});
@@ -547,9 +576,9 @@ makeContext = (env, appStore, chunkStore, parentStore) => {
 		return { res, stashPath };
 	};
 
-	const applyDOM = ({ stashPath }) => {
+	const applyDOM = ({ stashPath, res }) => {
 		parentStore.push(Stash(stashPath));
-		return;
+		return res;
 	};
 
 	return {
@@ -636,9 +665,9 @@ const makeSSRContext = (env_) => {
 		return { res, stashMarkup };
 	};
 
-	const applyDOM = ({ stashMarkup }) => {
+	const applyDOM = ({ stashMarkup, res }) => {
 		markup += stashMarkup;
-		return;
+		return res;
 	};
 
 	CTXT = {
@@ -699,6 +728,14 @@ exports.collectImpl = C => getColl => e => C.joinEvent(getColl, e);
 exports.bindSignalImpl = doEval => C => skipRender => signal => inner => C.bindSignal(signal, inner, doEval, skipRender);
 exports.dedupSignalImpl = C => pred => signal => C.dedupSignal(signal, (a, b) => pred(a)(b));
 exports.flattenSignalImpl = C => signalSignal => C.flattenSignal(signalSignal);
+exports.reduceSignalImpl = pure => doEval => C => s => reducer => init => {
+	let acc = init;
+	const f = (v) => {
+		acc = reducer(acc)(v);
+		return pure(acc);
+	};
+	return C.bindSignal(s, f, doEval, false);
+};
 exports.reduceEventImpl = C => e => reducer => init => C.reduceEvent(e, reducer, init);
 exports.trapImpl = doEval => C => modEnv => getColl => innerF => C.collect(modEnv, getColl, innerF, doEval);
 exports.createElementImpl = doEval => fromMaybe => C => tag => raw_attrs => inner => {
@@ -761,4 +798,18 @@ exports.targetImpl = just => nothing => e => () => (
 
 exports.memoImpl = () => {
     // TODO
+};
+
+exports.stashEqAble = a => {
+	console.log({ a });
+	return !a.stashMarkup ?
+		`chunkId:${a.stashPath.chunkId}-stashId-${a.stashPath.stashId}` :
+		a.stashMarkup;
+};
+
+exports.elResEqAble = (a) => {
+	console.log({ a }, 'elres');
+	// TODO probably do something else, maybe shouldnt
+	// implement EQ for this at all
+	return "true";
 };
