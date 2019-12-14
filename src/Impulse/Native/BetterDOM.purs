@@ -27,8 +27,24 @@ module Impulse.Native.BetterDOM
        , ImpulseAttachment
        , ImpulseStash
        , ImpulseEl
-       -- for dealing types
+       , WebEvent
+       -- for dealing `ImpulseEl`s
        , elRes
+       , onClick
+       , onDoubleClick
+       , onMouseDown
+       , onMouseEnter
+       , onMouseLeave
+       , onMouseMove
+       , onMouseOut
+       , onMouseOver
+       , onMouseUp
+       , onChange
+       , onTransitionEnd
+       , onScroll
+       , onKeyUp
+       , onKeyDown
+       , onKeyPress
        -- putting to use
        , attach
        -- proxy reader
@@ -41,6 +57,8 @@ module Impulse.Native.BetterDOM
        , withEnv
        -- types required to be exported but should remain unused
        , DOMClass
+       -- maybe shouldnt have?
+       , _eff
        ) where
 
 import Prelude
@@ -77,8 +95,12 @@ foreign import data ImpulseEl :: Type -> Type
 foreign import data ImpulseStash :: Type -> Type
 foreign import data ImpulseAttachment :: Type -> Type
 foreign import data Collector :: Type -> Type
+foreign import data JSAttrs :: Type
 
 type DOM e c a = Reader (DOMClass e c) a
+
+
+foreign import toJSAttrs :: forall a. (a -> M.Maybe a -> a) -> Attrs -> JSAttrs
 
 -- CORE API IMPORT -----------------
 
@@ -88,11 +110,17 @@ foreign import withAlteredEnvImpl :: forall e1 e2 c a. (e1 -> e2) -> (DOMClass e
 
 foreign import keyedImpl :: forall e c a. String -> (DOMClass e c -> a) -> DOMClass e c -> a
 
-foreign import createElementImpl :: forall e c a. String -> Attrs -> (DOMClass e c -> a) -> DOMClass e c -> ImpulseEl a
+foreign import createElementImpl :: forall e c a. String -> JSAttrs -> (DOMClass e c -> a) -> DOMClass e c -> ImpulseEl a
 
 foreign import textImpl :: forall e c. String -> DOMClass e c -> Unit
 
-foreign import e_collectImpl :: forall e c1 c2 a b. (c1 -> Collector a -> c2) -> (c2 -> Collector a) -> (FRP.Event a -> DOMClass e c2 -> b) -> DOMClass e c1 -> b
+foreign import e_collectImpl :: 
+  forall e c1 c2 a b.
+  (c1 -> Collector a -> c2) ->
+  (c2 -> Collector a) ->
+  (FRP.Event a -> DOMClass e c2 -> b) ->
+  DOMClass e c1 -> 
+  b
 
 foreign import e_emitImpl :: forall e c a. (c -> Collector a) -> FRP.Event a -> DOMClass e c -> Unit
 
@@ -114,6 +142,38 @@ foreign import attachImpl :: forall e a. String -> e -> (DOMClass e {} -> a) -> 
 
 foreign import elRes :: forall a. ImpulseEl a -> a
 
+type WebEvent = WE.Event
+
+foreign import onClick :: forall a. ImpulseEl a -> FRP.Event ME.MouseEvent
+
+foreign import onDoubleClick :: forall a. ImpulseEl a -> FRP.Event ME.MouseEvent
+
+foreign import onMouseDown :: forall a. ImpulseEl a -> FRP.Event ME.MouseEvent
+
+foreign import onMouseEnter :: forall a. ImpulseEl a -> FRP.Event ME.MouseEvent
+
+foreign import onMouseLeave :: forall a. ImpulseEl a -> FRP.Event ME.MouseEvent
+
+foreign import onMouseMove :: forall a. ImpulseEl a -> FRP.Event ME.MouseEvent
+
+foreign import onMouseOut :: forall a. ImpulseEl a -> FRP.Event ME.MouseEvent
+
+foreign import onMouseOver :: forall a. ImpulseEl a -> FRP.Event ME.MouseEvent
+
+foreign import onMouseUp :: forall a. ImpulseEl a -> FRP.Event ME.MouseEvent
+
+foreign import onChange :: forall a. ImpulseEl a -> FRP.Event WebEvent
+
+foreign import onTransitionEnd :: forall a. ImpulseEl a -> FRP.Event WebEvent
+
+foreign import onScroll :: forall a. ImpulseEl a -> FRP.Event WebEvent
+
+foreign import onKeyUp :: forall a. ImpulseEl a -> FRP.Event KE.KeyboardEvent
+
+foreign import onKeyDown :: forall a. ImpulseEl a -> FRP.Event KE.KeyboardEvent
+
+foreign import onKeyPress :: forall a. ImpulseEl a -> FRP.Event KE.KeyboardEvent
+
 -- CORE API ------------------------
 
 env :: forall e c. DOM e c e
@@ -127,7 +187,7 @@ keyed s inner = ask <#> keyedImpl s (runReader inner)
 
 createElement :: forall e c a. String -> Attrs -> DOM e c a -> DOM e c (ImpulseEl a)
 createElement tag attrs inner = do
-  ask <#> createElementImpl tag attrs (runReader inner)
+  ask <#> createElementImpl tag (toJSAttrs M.fromMaybe attrs) (runReader inner)
 
 createElement_ :: forall r e a. String -> Attrs -> DOM r e a -> DOM r e a
 createElement_ tag attrs inner = createElement tag attrs inner <#> elRes
@@ -170,7 +230,7 @@ s_use eff_s = ask <#> s_useImpl eff_s
 
 -- | `d_stash inner`
 -- |
--- | runs inner but does not render in place, instead stashes whatever
+-- | runs `inner` but does not render in place, instead stashes whatever
 -- | was rendered such that it can be used later using `d_apply`.
 -- | stashes are immutable and can be passed around as far as you like.
 -- | ```
@@ -299,16 +359,46 @@ d_read ::
   DOM { | e } { | c } res
 d_read sym = d_readAs sym identity
 
-p_clicks = (SProxy :: SProxy "clicks")
-
--- |    clickButton :: forall e c. Int -> String -> DOM e { clicks :: Collector Int | c } Unit
--- |    displayClicks :: forall e c. DOM { clicks :: Signal Int | e } c Unit
+-- | `e_collectAndReduce p reducer init inner`
+-- |
+-- | Creates a signal from the supplied `reducer` and `init`ial value.
+-- | `inner` is then run with the created signal injected into the
+-- | environment at `p`. The event used to drive the `reducer` is the
+-- | combination of all events `e_emit`ed to `p` while running `inner`.
+-- | ```
+-- |    p_score = (SProxy :: SProxy "score")
+-- |
+-- |    scoreButton ::
+-- |      forall e c.
+-- |      Int ->
+-- |      String ->
+-- |      DOM e { score :: Collector Int | c } Unit
+-- |    scoreButton change message = do
+-- |      d_button <- button anil $ text message
+-- |      e_emit p_score $ onClick d_button <#> const change
+-- |
+-- |    displayScore ::
+-- |      forall e c.
+-- |      DOM { score :: Signal Int | e } c Unit
+-- |    displayScore = do
+-- |      s_score <- getEnv p_score
+-- |      s_bindDOM_ s_score \score -> do
+-- |        span_ anil $ text $ "Score: " <> show score
+-- |
 -- |    test :: forall e c. DOM e c Unit
 -- |    test = do
--- |      e_collectAndReduce p_clicks (\agg change -> agg + change) 0 do
--- |        clickButton (-1) "Decrement Score"
--- |        displayClicks
--- |        clickButton (1) "Increment Score"
+-- |      e_collectAndReduce p_score (\agg change -> agg + change) 0 do
+-- |        scoreButton (-1) "Decrement Score"
+-- |        displayScore
+-- |        scoreButton (1) "Increment Score"
+-- | ```
+-- | results in
+-- | ```
+-- |   <button>Decrement Score</button>
+-- |   <span>Score: 0</span>
+-- |   <button>Increment Score</button>
+-- | ```
+-- | with the score text changing as expected
 e_collectAndReduce ::
   forall res a b sym eI eSym eO eOSymless cI cSym cO cOSymless.
   IsSymbol sym =>
@@ -334,9 +424,17 @@ e_collectAndReduce proxy reducer init inner = do
 ------------------------------------
 
 attach :: forall e a. String -> e -> DOM e {} a -> Effect (ImpulseAttachment a)
-attach id envInit dom = attachImpl id envInit $ runReader dom
+attach id envInit dom = do
+  pure unit
+  pure unit
+  attachImpl id envInit $ runReader dom
 
 ------------------------------------
 
 test3 :: Effect Unit
-test3 = Console.log "lul"
+test3 = Console.log "zzzlulz"
+
+
+foreign import _effImpl :: forall e c a. Effect a -> DOMClass e c -> a
+_eff :: forall e c a. Effect a -> DOM e c a
+_eff eff = ask <#> _effImpl eff

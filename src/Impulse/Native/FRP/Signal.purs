@@ -86,8 +86,8 @@ s_build reader = s_buildImpl $ runReader reader
 s_make :: forall a. Event.Event a -> a -> SigBuild a
 s_make e i = s_build $ s_from e i
 
-sigBuildToRecord ::
+eff_sigBuilder ::
   forall a.
-  SigBuild a ->
+  SigBuilder a ->
   Effect { destroy :: Effect Unit, signal :: Signal a }
-sigBuildToRecord = sigBuildToRecordImpl $ \destroy signal -> { destroy, signal }
+eff_sigBuilder = s_build >>> sigBuildToRecordImpl (\destroy signal -> { destroy, signal })
