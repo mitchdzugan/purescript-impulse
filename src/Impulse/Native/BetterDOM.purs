@@ -20,6 +20,8 @@ module Impulse.Native.BetterDOM
        , d_stash
        , d_apply
        , d_apply_
+       , d_clone
+       , s_extract
        -- vdom keys
        , keyed
        -- types
@@ -422,6 +424,12 @@ e_collectAndReduce proxy reducer init inner = do
           let e = FRP.reduce reducer init e_raw
           s <- s_use $ Sig.s_from e init
           upsertEnv proxy s inner
+
+d_clone :: forall e c a. ImpulseStash a -> DOM e c (ImpulseStash a)
+d_clone = d_apply >>> d_stash
+
+s_extract :: forall e c a. Sig.Signal (ImpulseStash a) -> DOM e c (ImpulseStash (Sig.Signal a))
+s_extract = flip s_bindDOM d_apply >>> d_stash
 
 ------------------------------------
 

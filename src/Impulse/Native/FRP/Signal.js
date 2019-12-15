@@ -19,3 +19,4 @@ exports.s_dedupImpl = frp.s_dedupImpl;
 
 exports.s_buildImpl = frp.s_buildImpl;
 exports.sigBuildToRecordImpl = frp.sigBuildToRecordImpl;
+exports.s_builderInstImpl = frp.s_inst;

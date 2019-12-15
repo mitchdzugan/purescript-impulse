@@ -6,7 +6,6 @@ module Impulse.Native.FRP.Signal
        , s_flatten
        , s_dedup
        , s_build
-       , s_make
        , s_destroy
        , s_subRes
        , s_unsub
@@ -14,6 +13,9 @@ module Impulse.Native.FRP.Signal
        , s_inst
        , s_changed
        , s_tagWith
+       , s_reduce
+       , s_reduce_e
+       , s_reduce_s
        , Signal
        , SigClass
        , SigBuild
@@ -53,6 +55,7 @@ foreign import s_constImpl :: forall a. a -> SigClass -> Signal a
 foreign import s_zipWithImpl :: forall a b c. (a -> b -> c) -> Signal a -> Signal b -> SigClass -> Signal c
 foreign import s_flattenImpl :: forall a. Signal (Signal a) -> SigClass -> Signal a
 foreign import s_dedupImpl :: forall a. (a -> a -> Boolean) -> Signal a -> SigClass -> Signal a
+foreign import s_builderInstImpl :: forall a. Signal a -> SigClass -> a
 
 foreign import s_buildImpl :: forall a. (SigClass -> Signal a) -> SigBuild a
 foreign import sigBuildToRecordImpl ::
@@ -61,6 +64,8 @@ foreign import sigBuildToRecordImpl ::
   SigBuild a ->
   Effect { destroy :: Effect Unit, signal :: Signal a }
 
+s_builderInst :: forall a. Signal a -> Reader SigClass a
+s_builderInst s = ask <#> s_builderInstImpl s
 
 s_from :: forall a. Event.Event a -> a -> SigBuilder a
 s_from e i = ask <#> s_fromImpl e i
@@ -80,12 +85,24 @@ s_flatten ss = ask <#> s_flattenImpl ss
 s_dedup :: forall a. Eq a => Signal a -> SigBuilder a
 s_dedup s = ask <#> s_dedupImpl (==) s
 
+s_reduce_e :: forall a b. (a -> b -> a) -> a -> Event.Event b -> SigBuilder a
+s_reduce_e r i e = s_from (Event.reduce r i e) i
+
+s_reduce_s :: forall a b. (a -> b -> a) -> a -> Signal b -> SigBuilder a
+s_reduce_s r pre_i s = do
+  i_b <- s_builderInst s
+  let i = r pre_i i_b
+      e = s_changed s
+  s_from (Event.reduce r i e) i
+
+s_reduce :: forall a. (a -> a -> a) -> Signal a -> SigBuilder a
+s_reduce r s = do
+  i <- s_builderInst s
+  let e = s_changed s
+  s_from (Event.reduce r i e) i
 
 s_build :: forall a. SigBuilder a -> SigBuild a
 s_build reader = s_buildImpl $ runReader reader
-
-s_make :: forall a. Event.Event a -> a -> SigBuild a
-s_make e i = s_build $ s_from e i
 
 eff_sigBuilder ::
   forall a.

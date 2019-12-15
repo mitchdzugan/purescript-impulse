@@ -41,8 +41,21 @@ const getEnv = getSys(currEnvBySysId);
 const setEnv = setSys(currEnvBySysId);
 
 const makeColl = () => {
-	const coll = { e: frp.never };
-	coll.join = (e) => { coll.e = frp.join([coll.e, e]); };
+	const coll = {
+		es: {},
+		nextEId: 1,
+		getE () {
+			return frp.join(Object.values(coll.es));
+		}
+	};
+	coll.join = (e) => {
+		const eId = coll.nextEId;
+		coll.nextEId++;
+		coll.es[eId] = e;
+		return () => {
+			delete coll.es[eId];
+		};
+	};
 	return coll;
 };
 
@@ -70,6 +83,14 @@ const mkBindEnv = () => ({
 	used: {},
 	collectors: {},
 	collectorSpecs: null,
+	renderOffs: [],
+	refresh () {
+		this.renderOffs.forEach(off => off());
+		this.renderOffs = [];
+		this.collectors = freshCollectors(this.collectorSpecs);
+		this.collectorSpecs = this.collectorSpecs;
+		this.used = {};
+	},
 	mkFresh () {
 		const fresh = mkBindEnv();
 		fresh.collectors = freshCollectors(this.collectorSpecs);
@@ -127,7 +148,7 @@ const iCreateElement = (tag, attrs, children, path) => ({
 	type: idomTypes.CreateElement
 });
 const iBind = (path) => ({ type: idomTypes.Bind, path });
-const iStash = () => ({ type: idomTypes.Stash });
+const iStash = (stashId) => ({ type: idomTypes.Stash, stashId });
 const iText = (text) => ({ type: idomTypes.Text, text });
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -179,11 +200,9 @@ const createElementImpl = (tag) => (attrs) => (domF) => (domClass) => {
 				return _ons[on];
 			}
 			const e = frp.mkEvent((pushSelf) => () => {
-				const push = v => {
-					pushSelf(v)();
-				};
-				elm.addEventListener('click', push);
-				return () => elm.removeEventListener('click', push);
+				const push = v => pushSelf(v)();
+				elm.addEventListener(on, push);
+				return () => elm.removeEventListener(on, push);
 			});
 			_ons[on] = e;
 			elm._ons = _ons;
@@ -220,7 +239,7 @@ const e_collectImpl = (addCollector) => (getCollector) => (domFE) => (domClass) 
 		() => {
 			const { res } = frp.preempt(({ e }) => e)((e) => {
 				const res = domFE(e)(domClass);
-				return { res, e: coll.e };
+				return { res, e: coll.getE() };
 			});
 			return res;
 		}
@@ -230,7 +249,7 @@ const e_collectImpl = (addCollector) => (getCollector) => (domFE) => (domClass) 
 // -- e_emitImpl :: forall e c a. (c -> Collector a) -> FRP.Event a -> DOMClass e c -> Unit
 const e_emitImpl = (getCollector) => (e) => (domClass) => {
 	const bindEnv = getBindEnv(domClass);
-	getCollector(bindEnv.collectors).join(e);
+	bindEnv.renderOffs.push(getCollector(bindEnv.collectors).join(e));
 	return;
 };
 
@@ -251,7 +270,7 @@ const s_bindDOMImpl = (s) => (domFS) => (domClass) => {
 			} = frp.s_sub((val) => () => {
 				parentEnv.children = [];
 				setEnv(env)(domClass);
-				bindEnv.used = {};
+				bindEnv.refresh();
 				setBindEnv(bindEnv)(domClass);
 				setParentEnv(parentEnv)(domClass);
 				const res = domFS(val)(domClass);
@@ -283,6 +302,8 @@ const s_bindDOMImpl = (s) => (domFS) => (domClass) => {
 					offs => offs.forEach(off => off())
 				);
 				bindEnv.offsByPath = {};
+				bindEnv.renderOffs.forEach(off => off());
+				bindEnv.renderOffs = [];
 				delete prevBindEnv.offsByPath[path];
 				delete sysEnv.idomByPath[path];
 			};
@@ -294,10 +315,10 @@ const s_bindDOMImpl = (s) => (domFS) => (domClass) => {
 			setEnv(env)(domClass);
 			const getCollectors = prevBindEnv.getCollectorsArray();
 			getCollectors.forEach((getCollector) => {
-				getCollector(prevBindEnv.collectors).join(frp.join([
-					getCollector(collectors).e,
-					frp.flatMap(colls => getCollector(colls).e)(e_collectors)
-				]));
+				prevBindEnv.renderOffs.push(getCollector(prevBindEnv.collectors).join(frp.join([
+					getCollector(collectors).getE(),
+					frp.flatMap(colls => getCollector(colls).getE())(e_collectors)
+				])));
 			});
 			return { signal, path };
 		}
@@ -335,10 +356,33 @@ const s_useImpl = (sbf) => (domClass) => {
 };
 
 // -- d_stashImpl :: forall e c a. (DOMClass e c ->  a) -> DOMClass e c -> ImpulseStash a
-const d_stashImpl = () => {};
+const d_stashImpl = (domF) => (domClass) => {
+	const sysEnv = getSysEnv(domClass);
+	const stashId = sysEnv.nextStashId;
+	sysEnv.nextStashId++;
+	sysEnv.stashUsage[stashId] = 0;
+	return altered_f(env => prepareKeyForType(`d_stash.${stashId}`)(env).mkFresh(`d_stash.${stashId}`))(currParentEnvBySysId)(domClass)(
+		() => {
+			const res = domF(domClass);
+			const { children, path } = getParentEnv(domClass);
+			sysEnv.idomByPath[path] = children;
+			sysEnv.stashes[stashId] = path;
+			return { stashId, res };
+		}
+	);
+};
 
 // -- d_applyImpl :: forall e c a. ImpulseStash a -> DOMClass e c -> a
-const d_applyImpl = () => {};
+const d_applyImpl = ({ stashId, res }) => (domClass) => {
+	const sysEnv = getSysEnv(domClass);
+	sysEnv.stashUsage[stashId] += 1;
+	const bindEnv = getBindEnv(domClass);
+	bindEnv.renderOffs.push(() => { sysEnv.stashUsage[stashId] -= 1; });
+	getParentEnv(domClass).children.push(
+		iStash(stashId)
+	);
+	return res;
+};
 
 // -- d_memoImpl :: forall e c a b. Eq a => H.Hashable a => a -> (a -> DOMClass e c -> b) -> DOMClass e c -> b
 const d_memoImpl = () => {};
@@ -353,7 +397,7 @@ const attachImpl = (id) => (env) => (domF) => () => {
 	const e_el_mount = frp.mkEvent();
 	const e_render = frp.mkEvent();
 	const requestRender = () => frp.push()(e_render)();
-	setSysEnv({ signals: {}, idomByPath: {}, e_el_mount, requestRender })(domClass);
+	setSysEnv({ nextStashId: 1, stashes: {}, stashUsage: {}, signals: {}, idomByPath: {}, e_el_mount, requestRender })(domClass);
 	const bindEnv = mkBindEnv();
 	setBindEnv(bindEnv)(domClass);
 	setParentEnv(mkParentEnv(ROOT))(domClass);
@@ -362,33 +406,31 @@ const attachImpl = (id) => (env) => (domF) => () => {
 	const res = resultSignal.getVal();
 	const off = frp.consume(
 		() => () => {
-			const { idomByPath } = getSysEnv(domClass);
+			const {idomByPath, stashes, stashUsage} = getSysEnv(domClass);
 			const rootIdom = idomByPath[ROOT_BIND];
 			let fromIDOMtoVDOM;
-			const toVDOMObjs = {
+			const toVDOMsObj = {
 				[idomTypes.CreateElement] (idom) {
 					const children = fromIDOMtoVDOM(idom.children);
 					let tag = idom.tag;
 					const attrs = idom.attrs;
-
 					const baseClass = attrs.class || '';
 					const otherClass = attrs.className || '';
 					const fullClass = `${baseClass} ${otherClass}`;
 					delete attrs.className;
-					attrs.class = fullClass.trim();
+					attrs.class = fullClass.trim() === '' ? undefined : fullClass.trim();
 
-					if (attrs.class && isOneWord(attrs.class)) {
-						tag += `.${attrs.class}`;
-						delete attrs.class;
-					}
 					if (attrs.id && isOneWord(attrs.id)) {
 						tag += `#${attrs.id.trim()}`;
 						delete attrs.id;
 					}
+					if (attrs.class && isOneWord(attrs.class)) {
+						tag += `.${attrs.class}`;
+						delete attrs.class;
+					}
 
 					const hook = {
 						insert ({ elm }) {
-							elm._ons = {};
 							frp.push({ path: idom.path, elm })(e_el_mount)();
 						}
 					};
@@ -402,22 +444,32 @@ const attachImpl = (id) => (env) => (domF) => () => {
 					const boundIdom = idomByPath[idom.path] || [];
 					return fromIDOMtoVDOM(boundIdom);
 				},
-				[idomTypes.Stash] () {
-					return [];
+				[idomTypes.Stash] (idom) {
+					const stashedIdom = idomByPath[stashes[idom.stashId]] || [];
+					return fromIDOMtoVDOM(stashedIdom);
 				}
 			};
 			const toVDOMs = (idom) => {
-				const f = toVDOMObjs[idom.type] || (() => []);
+				const f = toVDOMsObj[idom.type] || (() => []);
 				return f(idom);
 			};
 			fromIDOMtoVDOM = flatMap(toVDOMs);
 			const vdom = fromIDOMtoVDOM(rootIdom);
 			const curr = h('div', {}, vdom);
 			patch(prev, curr);
-			const sysEnv = getSysEnv(domClass);
-			console.log('SysEnv');
-			console.log(Object.keys(sysEnv.idomByPath));
-			console.log(Object.keys(sysEnv.signals));
+			Object.keys(stashUsage).forEach((stashId) => {
+				if (stashUsage[stashId] > 0) {
+					return;
+				}
+
+				delete idomByPath[stashes[stashId]];
+				delete stashes[stashId];
+				delete stashUsage[stashId];
+			});
+			console.log(' :: PostRender :: ');
+			console.log(Object.keys(idomByPath));
+			console.log(Object.keys(stashUsage));
+			console.log(Object.keys(stashes));
 			prev = curr;
 		}
 	)(
