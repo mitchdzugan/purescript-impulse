@@ -20,26 +20,23 @@ main = log "hi"
 
 test :: DOM.DOM {} {} Unit
 test = do
-  s <- DOM.s_use $ Sig.s_make (FRP.timer 1000) 0
-  s2 <- DOM.s_use $ Sig.s_make (FRP.timer 5000) 0
-  DOM.e_collectAndReduce p_clicks (\agg _ -> agg + 1) 0 do
-    d_section <- DOM.createElement "section" (className "section") do
-      DOM.createElement_ "div" (className "testClass") do
-        DOM.text "Hello world!! :: "
-        DOM.s_bindDOM_ s \c -> do
-          DOM.text $ show c
+  s <- DOM.s_use $ Sig.s_from (FRP.timer 10000) 0
+  s2 <- DOM.s_use $ Sig.s_from (FRP.timer 50000) 0
+  DOM.createElement_ "section" (className "section") do
+    DOM.createElement_ "div" (className "testClass") do
+      DOM.text "Hello world!! :: "
+      DOM.s_bindDOM_ s \c -> do
+        DOM.text $ show c
+      DOM.text " :: "
+      DOM.s_bindDOM_ s \c -> do
+        DOM.text $ show c
         DOM.text " :: "
-        DOM.s_bindDOM_ s \c -> do
-          DOM.text $ show c
-          DOM.text " :: "
-          DOM.s_bindDOM_ s2 \c2 -> do
-            DOM.text $ show c2
-    DOM.e_emit p_clicks $ DOM.onClick d_section
-    s_clicks <- DOM.getEnv p_clicks
-    DOM.s_bindDOM_ s_clicks \clicks -> do
-      DOM.createElement_ "div" anil do
-        DOM.text "Clicks :: "
-        DOM.text $ show clicks
+        DOM.keyed (show c) $ DOM.s_bindDOM_ s2 \c2 -> do
+          DOM.text $ show c2
+          s3 <- DOM.s_use $ Sig.s_from (FRP.timer 5000) 0
+          DOM.s_bindDOM_ s3 \c3 -> do
+            DOM.text " :: "
+            DOM.text $ show c3
 
 ui :: Effect Unit
 ui = do

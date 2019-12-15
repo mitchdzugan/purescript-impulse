@@ -172,7 +172,7 @@ const createElementImpl = (tag) => (attrs) => (domF) => (domClass) => {
 
 	const { e_el_mount } = getSysEnv(domClass);
 	const mkOn = (on) => {
-		const filtered = frp.filter((mount) => { console.log({ mount, path }); return mount.path === path; })(e_el_mount);
+		const filtered = frp.filter((mount) => { return mount.path === path; })(e_el_mount);
 		return frp.flatMap(({ elm }) => {
 			const _ons = elm._ons || {};
 			if (_ons[on]) {
@@ -180,7 +180,6 @@ const createElementImpl = (tag) => (attrs) => (domF) => (domClass) => {
 			}
 			const e = frp.mkEvent((pushSelf) => () => {
 				const push = v => {
-					console.log('AY YO V', v);
 					pushSelf(v)();
 				};
 				elm.addEventListener('click', push);
@@ -263,6 +262,12 @@ const s_bindDOMImpl = (s) => (domFS) => (domClass) => {
 					frp.push(res)(e_res)();
 					frp.push(bindEnv.collectors)(e_collectors)();
 					sysEnv.requestRender();
+					Object.keys(bindEnv.offsByPath).forEach((offKey) => {
+						if (bindEnv.used[offKey]) {
+							return;
+						}
+						bindEnv.offsByPath[offKey].forEach(off => off());
+					});
 				}
 				isFirst = false;
 				return {
@@ -271,21 +276,28 @@ const s_bindDOMImpl = (s) => (domFS) => (domClass) => {
 			})(s)();
 			const { destroy, signal } = frp.s_buildImpl(frp.s_fromImpl(e_res)(res))();
 			const shutdown = () => {
+				const sysEnv = getSysEnv(domClass);
 				destroy();
 				off();
-				Object.values(bindEnv.offsByPath).forEach(off => off());
+				Object.values(bindEnv.offsByPath).forEach(
+					offs => offs.forEach(off => off())
+				);
+				bindEnv.offsByPath = {};
+				delete prevBindEnv.offsByPath[path];
+				delete sysEnv.idomByPath[path];
 			};
 			const offs = prevBindEnv.offsByPath[path] || [];
 			offs.push(shutdown);
+			prevBindEnv.offsByPath[path] = offs;
 			prevBindEnv.used[path] = true;
 			setBindEnv(prevBindEnv)(domClass);
 			setEnv(env)(domClass);
 			const getCollectors = prevBindEnv.getCollectorsArray();
 			getCollectors.forEach((getCollector) => {
-				getCollector(prevBindEnv.collectors).join([
+				getCollector(prevBindEnv.collectors).join(frp.join([
 					getCollector(collectors).e,
 					frp.flatMap(colls => getCollector(colls).e)(e_collectors)
-				]);
+				]));
 			});
 			return { signal, path };
 		}
@@ -309,7 +321,11 @@ const s_useImpl = (sbf) => (domClass) => {
 			const { destroy, signal } = sbf();
 			sysEnv.signals[path] = signal;
 			const offs = bindEnv.offsByPath[path] || [];
-			offs.push(destroy);
+			offs.push(() => {
+				destroy();
+				delete sysEnv.signals[path];
+				delete bindEnv.offsByPath[path];
+			});
 			bindEnv.offsByPath[path] = offs;
 			return signal;
 		}
@@ -352,9 +368,6 @@ const attachImpl = (id) => (env) => (domF) => () => {
 			const toVDOMObjs = {
 				[idomTypes.CreateElement] (idom) {
 					const children = fromIDOMtoVDOM(idom.children);
-
-
-
 					let tag = idom.tag;
 					const attrs = idom.attrs;
 
@@ -380,19 +393,6 @@ const attachImpl = (id) => (env) => (domF) => () => {
 						}
 					};
 					const data = { attrs, hook };
-
-
-
-
-
-
-
-
-
-
-
-
-
 					return [h(tag, data, children)];
 				},
 				[idomTypes.Text] (idom) {
@@ -414,10 +414,14 @@ const attachImpl = (id) => (env) => (domF) => () => {
 			const vdom = fromIDOMtoVDOM(rootIdom);
 			const curr = h('div', {}, vdom);
 			patch(prev, curr);
+			const sysEnv = getSysEnv(domClass);
+			console.log('SysEnv');
+			console.log(Object.keys(sysEnv.idomByPath));
+			console.log(Object.keys(sysEnv.signals));
 			prev = curr;
 		}
 	)(
-		frp.throttle(100)(e_render)
+		frp.throttle(10)(e_render)
 	)();
 	requestRender();
 	const detach = () => {

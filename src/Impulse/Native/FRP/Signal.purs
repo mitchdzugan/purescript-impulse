@@ -17,6 +17,7 @@ module Impulse.Native.FRP.Signal
        , Signal
        , SigClass
        , SigBuild
+       , SigBuilder
        , SubRes
        ) where
 

@@ -216,7 +216,9 @@ e_emit ::
   SProxy l ->
   FRP.Event a ->
   DOM e (Record c2) Unit
-e_emit proxy event = ask <#> e_emitImpl (R.get proxy) event
+e_emit proxy event = do
+  pure unit
+  ask <#> e_emitImpl (R.get proxy) event
 
 s_bindDOM :: forall e c a b. Sig.Signal a -> (a -> DOM e c b) -> DOM e c (Sig.Signal b)
 s_bindDOM s inner = ask <#> s_bindDOMImpl s (runReader <<< inner)
@@ -224,8 +226,8 @@ s_bindDOM s inner = ask <#> s_bindDOMImpl s (runReader <<< inner)
 s_bindDOM_ :: forall r e a b. Sig.Signal a -> (a -> DOM r e b) -> DOM r e Unit
 s_bindDOM_ s f = s_bindDOM s f <#> const unit
 
-s_use :: forall e c a. (Sig.SigBuild a) -> DOM e c (Sig.Signal a)
-s_use eff_s = ask <#> s_useImpl eff_s
+s_use :: forall e c a. (Sig.SigBuilder a) -> DOM e c (Sig.Signal a)
+s_use sb = ask <#> s_useImpl (Sig.s_build sb)
 
 
 -- | `d_stash inner`
@@ -418,7 +420,7 @@ e_collectAndReduce proxy reducer init inner = do
   e_collect proxy go
   where go e_raw = do
           let e = FRP.reduce reducer init e_raw
-          s <- s_use $ Sig.s_make e init
+          s <- s_use $ Sig.s_from e init
           upsertEnv proxy s inner
 
 ------------------------------------
