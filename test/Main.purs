@@ -10,28 +10,30 @@ import Effect.Class (liftEffect)
 import Effect.Console (log)
 import Impulse.Native.BetterDOM as DOM
 import Impulse.Native.FRP as FRP
-import Impulse.Native.FRP.Signal as Sig
 
 test :: DOM {} {} Unit
 test = do
-  -- sss <- DOM.s_use $ Sig.s_const 0
-  -- DOM.upsertEnv p_clicks sss do
-  s <- DOM.s_use $ Sig.s_from (FRP.timer 1000) 0
-  s2 <- DOM.s_use $ Sig.s_from (FRP.timer 2000) 0
+  s <- DOM.s_use $ FRP.s_from (FRP.timer 1000) 0
+  s2 <- DOM.s_use $ FRP.s_from (FRP.timer 2000) 0
   DOM.e_collectAndReduce p_clicks (\agg _ -> agg + 1) 0 do
     DOM.createElement_ "section" (className "section") do
       DOM.createElement_ "div" (className "testClass") do
         DOM.s_bindDOM_ s $ \c -> DOM.s_bindDOM_ s2 \c2 -> do
+          DOM.d_memo 1 $ const do
+            text $ " ::[memo c, bound c2]:: [" <> (show c)
+            DOM.s_bindDOM_ s2 \c2 -> do
+              text $ ",  " <> (show c2) <> "]"
           DOM.keyed (show c) do
             ul_ anil do
               stash <- d_stash do
                 li_ anil $ text "out"
                 li_ anil $ text "of"
                 li_ anil $ text "order?"
-              li_ anil $ text "You"
-              li_ anil $ text "thought"
-              li_ anil $ text "this"
-              li_ anil $ text "was"
+              li_ (className "1" *> id "1") $ text "You"
+              d_li <- li (id "2" *> className "2") $ text "thought"
+              DOM.e_emit p_clicks $ DOM.onClick d_li
+              li_ (className "3") $ text "this"
+              li_ (id "3") $ text "was"
               d_apply stash
           DOM.text $ show c
           DOM.text " :: "
@@ -46,6 +48,10 @@ test = do
 
 ui :: Effect Unit
 ui = do
+  ssr <- DOM.toMarkup {} test
+  DOM.ssr_then ssr $ \markup res -> do
+    trace { markup, res } \_ -> pure unit
+    pure unit
   _ <- attach "test" {} test
   pure unit
 
@@ -62,5 +68,6 @@ main = log "hi"
 text = DOM.text
 ul_ = DOM.createElement_ "ul"
 li_ = DOM.createElement_ "li"
+li = DOM.createElement "li"
 d_stash = DOM.d_stash
 d_apply = DOM.d_apply

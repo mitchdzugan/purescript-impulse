@@ -1,5 +1,6 @@
 module Impulse.Native.BetterDOM
        ( DOM
+       , Collector
        -- env
        , getEnv
        , upsertEnv
@@ -15,6 +16,7 @@ module Impulse.Native.BetterDOM
        , e_collect
        , e_collectAndReduce
        , e_emit
+       -- , e_consume (probably?)
        -- misc
        , d_memo
        , d_stash
@@ -24,13 +26,12 @@ module Impulse.Native.BetterDOM
        , s_extract
        -- vdom keys
        , keyed
-       -- types
-       , Collector
-       , ImpulseAttachment
-       , ImpulseStash
+       -- putting to use
+       , attach
+       , toMarkup
+       -- for dealing `ImpulseEl`s
        , ImpulseEl
        , WebEvent
-       -- for dealing `ImpulseEl`s
        , elRes
        , onClick
        , onDoubleClick
@@ -47,20 +48,25 @@ module Impulse.Native.BetterDOM
        , onKeyUp
        , onKeyDown
        , onKeyPress
-       -- putting to use
-       , attach
+       -- for dealing `ImpulseStash`s
+       , ImpulseStash
+       , stashRes
+       -- for dealing `ImpulseSSR`s
+       , ImpulseSSR
+       , ssr_then
+       -- for dealing `ImpulseAttachment`s
+       , ImpulseAttachment
+       , detach
+       , attachRes
        -- proxy reader
        , d_read
        , d_readAs
-       -- -- core API but not mostly made useless by better wrappers --
-       -- env
+       -- core API but not mostly made useless by better wrappers --
        , env
        , withAlteredEnv
        , withEnv
        -- types required to be exported but should remain unused
        , DOMClass
-       -- maybe shouldnt have?
-       , _eff
        ) where
 
 import Prelude
@@ -82,7 +88,6 @@ import Effect.Console as Console
 import Effect.Ref as Ref
 import Impulse.Native.DOM.Attrs
 import Impulse.Native.FRP as FRP
-import Impulse.Native.FRP.Signal as Sig
 import Impulse.Util.EffState as EffState
 import Prim.Row (class Cons, class Lacks, class Union)
 import Record as R
@@ -96,13 +101,14 @@ foreign import data DOMClass :: Type -> Type -> Type
 foreign import data ImpulseEl :: Type -> Type
 foreign import data ImpulseStash :: Type -> Type
 foreign import data ImpulseAttachment :: Type -> Type
+foreign import data ImpulseSSR :: Type -> Type
 foreign import data Collector :: Type -> Type
 foreign import data JSAttrs :: Type
 
 type DOM e c a = Reader (DOMClass e c) a
 
 
-foreign import toJSAttrs :: forall a. (a -> M.Maybe a -> a) -> Attrs -> JSAttrs
+foreign import toJSAttrs :: forall a. (a -> M.Maybe a -> a) -> DOMAttrs -> JSAttrs
 
 -- CORE API IMPORT -----------------
 
@@ -116,19 +122,19 @@ foreign import createElementImpl :: forall e c a. String -> JSAttrs -> (DOMClass
 
 foreign import textImpl :: forall e c. String -> DOMClass e c -> Unit
 
-foreign import e_collectImpl :: 
+foreign import e_collectImpl ::
   forall e c1 c2 a b.
   (c1 -> Collector a -> c2) ->
   (c2 -> Collector a) ->
   (FRP.Event a -> DOMClass e c2 -> b) ->
-  DOMClass e c1 -> 
+  DOMClass e c1 ->
   b
 
 foreign import e_emitImpl :: forall e c a. (c -> Collector a) -> FRP.Event a -> DOMClass e c -> Unit
 
-foreign import s_bindDOMImpl :: forall e c a b. Sig.Signal a -> (a -> DOMClass e c -> b) -> DOMClass e c -> Sig.Signal b
+foreign import s_bindDOMImpl :: forall e c a b. FRP.Signal a -> (a -> DOMClass e c -> b) -> DOMClass e c -> FRP.Signal b
 
-foreign import s_useImpl :: forall e c a. (Sig.SigBuild a) -> DOMClass e c -> Sig.Signal a
+foreign import s_useImpl :: forall e c a. (FRP.SigBuild a) -> DOMClass e c -> FRP.Signal a
 
 foreign import d_stashImpl :: forall e c a. (DOMClass e c ->  a) -> DOMClass e c -> ImpulseStash a
 
@@ -140,7 +146,17 @@ foreign import d_memoImpl :: forall e c a b. (a -> Int) -> a -> (a -> DOMClass e
 
 foreign import attachImpl :: forall e a. String -> e -> (DOMClass e {} -> a) -> Effect (ImpulseAttachment a)
 
+foreign import toMarkupImpl :: forall e a. e -> (DOMClass e {} -> a) -> Effect (ImpulseSSR a)
+
 ------------------------------------
+
+foreign import ssr_then :: forall a. ImpulseSSR a -> (String -> a -> Effect Unit) -> Effect Unit
+
+foreign import attachRes :: forall a. ImpulseAttachment a -> a
+
+foreign import detach :: forall a. ImpulseAttachment a -> Effect Unit
+
+foreign import stashRes :: forall a. ImpulseStash a -> a
 
 foreign import elRes :: forall a. ImpulseEl a -> a
 
@@ -189,7 +205,7 @@ keyed s inner = ask <#> keyedImpl s (runReader inner)
 
 createElement :: forall e c a. String -> Attrs -> DOM e c a -> DOM e c (ImpulseEl a)
 createElement tag attrs inner = do
-  ask <#> createElementImpl tag (toJSAttrs M.fromMaybe attrs) (runReader inner)
+  ask <#> createElementImpl tag (toJSAttrs M.fromMaybe $ mkAttrs attrs) (runReader inner)
 
 createElement_ :: forall r e a. String -> Attrs -> DOM r e a -> DOM r e a
 createElement_ tag attrs inner = createElement tag attrs inner <#> elRes
@@ -222,14 +238,14 @@ e_emit proxy event = do
   pure unit
   ask <#> e_emitImpl (R.get proxy) event
 
-s_bindDOM :: forall e c a b. Sig.Signal a -> (a -> DOM e c b) -> DOM e c (Sig.Signal b)
+s_bindDOM :: forall e c a b. FRP.Signal a -> (a -> DOM e c b) -> DOM e c (FRP.Signal b)
 s_bindDOM s inner = ask <#> s_bindDOMImpl s (runReader <<< inner)
 
-s_bindDOM_ :: forall r e a b. Sig.Signal a -> (a -> DOM r e b) -> DOM r e Unit
+s_bindDOM_ :: forall r e a b. FRP.Signal a -> (a -> DOM r e b) -> DOM r e Unit
 s_bindDOM_ s f = s_bindDOM s f <#> const unit
 
-s_use :: forall e c a. (Sig.SigBuilder a) -> DOM e c (Sig.Signal a)
-s_use sb = ask <#> s_useImpl (Sig.s_build sb)
+s_use :: forall e c a. (FRP.SigBuilder a) -> DOM e c (FRP.Signal a)
+s_use sb = ask <#> s_useImpl (FRP.s_build sb)
 
 
 -- | `d_stash inner`
@@ -410,8 +426,8 @@ e_collectAndReduce ::
   Cons sym (Collector a) () cSym =>
   Cons sym (Collector a) cOSymless cO =>
   Union cSym cI cO =>
-  Cons sym (Sig.Signal b) () eSym =>
-  Cons sym (Sig.Signal b) eOSymless eO =>
+  Cons sym (FRP.Signal b) () eSym =>
+  Cons sym (FRP.Signal b) eOSymless eO =>
   Union eSym eI eO =>
   SProxy sym ->
   (b -> a -> b) ->
@@ -422,29 +438,21 @@ e_collectAndReduce proxy reducer init inner = do
   e_collect proxy go
   where go e_raw = do
           let e = FRP.reduce reducer init e_raw
-          s <- s_use $ Sig.s_from e init
+          s <- s_use $ FRP.s_from e init
           upsertEnv proxy s inner
 
 d_clone :: forall e c a. ImpulseStash a -> DOM e c (ImpulseStash a)
 d_clone = d_apply >>> d_stash
 
-s_extract :: forall e c a. Sig.Signal (ImpulseStash a) -> DOM e c (ImpulseStash (Sig.Signal a))
+s_extract :: forall e c a. FRP.Signal (ImpulseStash a) -> DOM e c (ImpulseStash (FRP.Signal a))
 s_extract = flip s_bindDOM d_apply >>> d_stash
 
 ------------------------------------
 
 attach :: forall e a. String -> e -> DOM e {} a -> Effect (ImpulseAttachment a)
-attach id envInit dom = do
-  pure unit
-  pure unit
-  attachImpl id envInit $ runReader dom
+attach id envInit dom = attachImpl id envInit $ runReader dom
+
+toMarkup :: forall e a. e -> DOM e {} a -> Effect (ImpulseSSR a)
+toMarkup envInit dom = toMarkupImpl envInit $ runReader dom
 
 ------------------------------------
-
-test3 :: Effect Unit
-test3 = Console.log "zzzlulz"
-
-
-foreign import _effImpl :: forall e c a. Effect a -> DOMClass e c -> a
-_eff :: forall e c a. Effect a -> DOM e c a
-_eff eff = ask <#> _effImpl eff

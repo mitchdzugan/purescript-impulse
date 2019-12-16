@@ -104,26 +104,41 @@ const mkBindEnv = () => ({
 	}
 });
 
-const mkParentEnv = (path = '') => ({
+const mkParentEnv = (path = '', uniquePath = null) => ({
 	children: [],
 	nextKey: null,
+	nextUniqueKey: null,
 	countTakenByType: {},
 	path,
+	uniquePath: uniquePath || path,
 	mkFresh (step) {
-		return mkParentEnv(
-			`${step}${this.nextKey ? `.${this.nextKey}` : ''} | ${this.path}`
+		const res = mkParentEnv(
+			`${step}${this.nextKey ? `.${this.nextKey}` : ''} | ${this.path}`,
+			`${step}${this.nextKey ? `.${this.nextKey}` : `.${this.nextUniqueKey}`} | ${this.path}`
 		);
+		this.nextKey = null;
+		this.nextUniqueKey = null;
+		return res;
+	},
+	refresh () {
+		this.nextKey = null;
+		this.nextUniqueKey = null;
+		this.children = [];
+		this.countTakenByType = {};
 	}
 });
 
-const prepareKeyForType = (type) => (parentEnv) => {
+const prepareKeyForType = (type, setNextKey = true) => (parentEnv) => {
 	if (parentEnv.nextKey) {
 		return parentEnv;
 	}
 
 	const myId = parentEnv.countTakenByType[type] || 0;
 	parentEnv.countTakenByType[type] = myId + 1;
-	parentEnv.nextKey = `${myId}`;
+	if (setNextKey) {
+		parentEnv.nextKey = `${myId}`;
+	}
+	parentEnv.nextUniqueKey = `${myId}`;
 	return parentEnv;
 };
 
@@ -201,22 +216,22 @@ const keyedImpl = (key) => (domF) => (domClass) => {
 
 // -- createElementImpl :: forall e c a. String -> Attrs -> (DOMClass e c -> a) -> DOMClass e c -> ImpulseEl a
 const createElementImpl = (tag) => (attrs) => (domF) => (domClass) => {
-	const { innerRes, children, path } = altered(env => env.mkFresh(tag))(currParentEnvBySysId)(domClass)(
+	const { innerRes, children, uniquePath } = altered(env => prepareKeyForType(tag, false)(env).mkFresh(tag))(currParentEnvBySysId)(domClass)(
 		() => {
 			const innerRes = domF(domClass);
-			const { children, path } = getParentEnv(domClass);
-			return { innerRes, children, path };
+			const { children, uniquePath } = getParentEnv(domClass);
+			return { innerRes, children, uniquePath };
 		}
 	);
 
 	getParentEnv(domClass).children.push(
-		iCreateElement(tag, attrs, children, path)
+		iCreateElement(tag, attrs, children, uniquePath)
 	);
 
 	const { e_el_mount } = getSysEnv(domClass);
 	const mkOn = (on) => {
-		const filtered = frp.filter((mount) => { return mount.path === path; })(e_el_mount);
-		return frp.flatMap(({ elm }) => {
+		const filtered = frp.filter((mount) => { return mount.path === uniquePath; })(e_el_mount);
+		return frp.flatMap(({ elm, path }) => {
 			const _ons = elm._ons || {};
 			if (_ons[on]) {
 				return _ons[on];
@@ -275,7 +290,7 @@ const e_emitImpl = (getCollector) => (e) => (domClass) => {
 	return;
 };
 
-// -- s_bindDOMImpl :: forall e c a b. Sig.Signal a -> (a -> DOMClass e c -> b) -> DOMClass e c -> Sig.Signal b
+// -- s_bindDOMImpl :: forall e c a b. FRP.Signal a -> (a -> DOMClass e c -> b) -> DOMClass e c -> FRP.Signal b
 const s_bindDOMImpl = (s) => (domFS) => (domClass) => {
 	const e_res = frp.mkEvent();
 	const e_collectors = frp.mkEvent();
@@ -290,8 +305,8 @@ const s_bindDOMImpl = (s) => (domFS) => (domClass) => {
 			const {
 				off, res: { res, collectors }
 			} = frp.s_sub((val) => () => {
-				parentEnv.children = [];
 				setEnv(env)(domClass);
+				parentEnv.refresh();
 				bindEnv.refresh();
 				setBindEnv(bindEnv)(domClass);
 				setParentEnv(parentEnv)(domClass);
@@ -350,7 +365,7 @@ const s_bindDOMImpl = (s) => (domFS) => (domClass) => {
 	return signal;
 };
 
-// -- s_useImpl :: forall e c a. Sig.SigBuild a -> DOMClass e c -> Sig.Signal a
+// -- s_useImpl :: forall e c a. FRP.SigBuild a -> DOMClass e c -> FRP.Signal a
 const s_useImpl = (sbf) => (domClass) => {
 	const res = altered(env => prepareKeyForType('s_use')(env).mkFresh('s_use'))(currParentEnvBySysId)(domClass)(
 		() => {
@@ -407,25 +422,77 @@ const d_applyImpl = ({ stashId, res }) => (domClass) => {
 };
 
 // -- d_memoImpl :: forall e c a b. (a -> Int) -> a -> (a -> DOMClass e c -> b) -> DOMClass e c -> b
-const d_memoImpl = (hash) => (a) => (domFA) => (domClass) => {
+const d_memoImpl = (getHash) => (a) => (domFA) => (domClass) => {
 	const bindEnv = getBindEnv(domClass);
+	const sysEnv = getSysEnv(domClass);
+	const { children: currChildren } = getParentEnv(domClass);
 	const res = altered(env => prepareKeyForType('d_memo')(env).mkFresh('d_memo'))(currParentEnvBySysId)(domClass)(
-		() => {}
+		() => {
+			bindEnv.used[path] = true;
+			bindEnv.offsByPath[path] = [() => {
+				delete sysEnv.hasByPathAndHash[path];
+				delete sysEnv.domByPathAndHash[path];
+				delete sysEnv.valByPathAndHash[path];
+				Object.values(sysEnv.mbeByPathAndHash[path] || []).forEach((mbe) => (
+					Object.values(mbe.offsByPath).forEach((offs) => (
+						offs.forEach(off => off())
+					))
+				));
+				delete sysEnv.mbeByPathAndHash[path];
+			}];
+			const { path } = getParentEnv(domClass);
+			const hasByHash = sysEnv.hasByPathAndHash[path] || {};
+			const domByHash = sysEnv.domByPathAndHash[path] || {};
+			const valByHash = sysEnv.valByPathAndHash[path] || {};
+			const mbeByHash = sysEnv.valByPathAndHash[path] || {};
+			const hash = getHash(a);
+			if (hasByHash[hash]) {
+				domByHash[hash].forEach(dom => currChildren.push(dom));
+				return valByHash[hash];
+			}
+			const mbe = bindEnv.mkFresh();
+			setBindEnv(mbe)(domClass);
+			valByHash[hash] = domFA(a)(domClass);
+			domByHash[hash] = getParentEnv(domClass).children;
+			hasByHash[hash] = true;
+			mbeByHash[hash] = mbe;
+			sysEnv.valByPathAndHash[path] = valByHash;
+			sysEnv.domByPathAndHash[path] = domByHash;
+			sysEnv.hasByPathAndHash[path] = hasByHash;
+			sysEnv.mbeByPathAndHash[path] = mbeByHash;
+			domByHash[hash].forEach(dom => currChildren.push(dom));
+			setBindEnv(bindEnv)(domClass);
+			return valByHash[hash];
+		}
 	);
 };
 
-// -- attachImpl :: forall e a. String -> e -> (DOMClass e {} -> a) -> Effect (ImpulseAttachment a)
-const attachImpl = (id) => (env) => (domF) => () => {
-	let prev = document.getElementById(id);
+// TODO I really think postRender should work on IDOM instead of
+// VDOM but this is ok for now. this is because only client rendering
+// needs the snabbdom dependency, so only it should use it.
+const run = (env) => (domF) => (postRender) => {
 	const sysId = nextSysId;
 	nextSysId++;
 	const domClass = { sysId };
-	setEnv(env)(domClass);
 	const e_el_mount = frp.mkEvent();
 	const e_render = frp.mkEvent();
 	const requestRender = () => frp.push()(e_render)();
-	setSysEnv({ nextStashId: 1, stashes: {}, stashUsage: {}, signals: {}, idomByPath: {}, e_el_mount, requestRender })(domClass);
 	const bindEnv = mkBindEnv();
+	const sysEnv = {
+		nextStashId: 1,
+		stashes: {},
+		stashUsage: {},
+		signals: {},
+		idomByPath: {},
+		e_el_mount,
+		requestRender,
+		domByPathAndHash: {},
+		valByPathAndHash: {},
+		hasByPathAndHash: {},
+		mbeByPathAndHash: {}
+	};
+	setEnv(env)(domClass);
+	setSysEnv(sysEnv)(domClass);
 	setBindEnv(bindEnv)(domClass);
 	setParentEnv(mkParentEnv(ROOT))(domClass);
 	const { destroy, signal } = frp.s_buildImpl(frp.s_constImpl())();
@@ -464,15 +531,13 @@ const attachImpl = (id) => (env) => (domF) => () => {
 			};
 			fromIDOMtoVDOM = flatMap(toVDOMs);
 			const vdom = fromIDOMtoVDOM(rootIdom);
-			const curr = SNABBDOM.h('div', {}, vdom);
-			SNABBDOM.patch(prev, curr);
+			postRender(vdom);
 			Object.keys(stashUsage).forEach((stashId) => {
 				if (stashUsage[stashId] > 0) { return; }
 				delete idomByPath[stashes[stashId]];
 				delete stashes[stashId];
 				delete stashUsage[stashId];
 			});
-			prev = curr;
 		}
 	)(
 		frp.throttle(10)(e_render)
@@ -481,9 +546,65 @@ const attachImpl = (id) => (env) => (domF) => () => {
 	const detach = () => {
 		destroy();
 		off();
-		Object.values(bindEnv.offsByPath).forEach(off => off());
+		Object.values(bindEnv.offsByPath).forEach(offs => offs.forEach(off => off()));
 	};
 	return { res, detach };
+};
+
+// -- attachImpl :: forall e a. String -> e -> (DOMClass e {} -> a) -> Effect (ImpulseAttachment a)
+const attachImpl = (id) => (env) => (domF) => () => {
+	let prev = document.getElementById(id);
+	return run(env)(domF)(
+		(vdom) => {
+			const curr = SNABBDOM.h('div', {}, vdom);
+			SNABBDOM.patch(prev, curr);
+			prev = curr;
+		}
+	);
+};
+
+// -- toMarkupImpl :: forall e a. e -> (DOMClass e {} -> a) -> Effect (ImpulseSSR a)
+const toMarkupImpl = (env) => (domF) => () => {
+	let vdomsResolve;
+	const vdomsPromise = new Promise((resolve) => { vdomsResolve = resolve; });
+	const { res, detach } = run(env)(domF)(vdomsResolve);
+	return vdomsPromise.then((vdoms) => {
+		let markup = "";
+		const vdomProcess = (vdom) => {
+			if (typeof vdom === 'string') {
+				markup += vdom;
+				return;
+			}
+			if (vdom.text && !vdom.sel) {
+				markup += vdom.text;
+				return;
+			}
+
+			const { children, data: { attrs }, sel } = vdom;
+			let tag, id, className;
+			const split1 = sel.split('#');
+			const hasId = split1.length > 1;
+			const split2 = hasId ?
+						split1[1].split('.') :
+						split1[0].split('.');
+			const hasClass = split2.length > 1;
+			tag = hasId ? split1[0] : split2[0];
+			id = !hasId ? null : split2[0];
+			className = !hasClass ? null : split2[1];
+			markup += `<${tag}${!id ? '' : ` id="${id}"`}${!className ? '' : ` class="${className}"`}`;
+			Object.keys(attrs).forEach((attr_key) => {
+				let attr_val = attrs[attr_key];
+				attr_val = typeof attr_val === 'string' ? `"${attr_val}"` : attr_val;
+				markup += ` ${attr_key}=${attr_val}`;
+			});
+			markup += '>';
+			children.forEach(vdomProcess);
+			markup += `</${tag}>`;
+		};
+		vdoms.forEach(vdomProcess);
+		detach();
+		return { markup, res };
+	});
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -501,8 +622,15 @@ exports.d_stashImpl = d_stashImpl;
 exports.d_applyImpl = d_applyImpl;
 exports.d_memoImpl = d_memoImpl;
 exports.attachImpl = attachImpl;
+exports.toMarkupImpl = toMarkupImpl;
+
 exports.elRes = ({ innerRes }) => innerRes;
-exports._effImpl = eff => () => eff();
+exports.stashRes = ({ res }) => res;
+exports.attachRes = ({ res }) => res;
+exports.detach = ({ detach }) => detach;
+exports.ssr_then = promise => f => () => (
+	promise.then(({ markup, res }) => f(markup)(res)())
+);
 
 exports.toJSAttrs = (fromMaybe) => (raw_attrs) => {
 	const attrs = {};
