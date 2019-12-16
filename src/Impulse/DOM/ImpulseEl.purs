@@ -25,6 +25,7 @@ module Impulse.DOM.ImpulseEl
        , d_value_e
        ) where
 
+import Debug.Trace
 import Prelude
 import Data.Maybe as M
 import DOM.HTML.Indexed as HTML
@@ -107,6 +108,7 @@ target e = targetImpl M.Just M.Nothing e
 d_m_value_e :: forall e. WebEventable e => FRP.Event e -> FRP.Event (M.Maybe String)
 d_m_value_e e = FRP.mkEvent \pushSelf -> do
   flip FRP.consume e \we -> do
+    trace { we } \_ -> pure unit
     m_target <- target $ toWebEvent we
     pushSelf $ m_target <#> _.value
 
