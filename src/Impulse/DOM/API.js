@@ -114,7 +114,7 @@ const mkParentEnv = (path = '', uniquePath = null) => ({
 	mkFresh (step) {
 		const res = mkParentEnv(
 			`${step}${this.nextKey ? `.${this.nextKey}` : ''} | ${this.path}`,
-			`${step}${this.nextKey ? `.${this.nextKey}` : `.${this.nextUniqueKey}`} | ${this.path}`
+			`${step}${this.nextKey ? `.${this.nextKey}` : `.${this.nextUniqueKey}`} | ${this.uniquePath}`
 		);
 		this.nextKey = null;
 		this.nextUniqueKey = null;
@@ -159,9 +159,9 @@ const idomTypes = {
 	Text: 'Text'
 };
 
-const iCreateElement = (tag_, attrs_, children, path) => {
+const iCreateElement = (tag_, attrs_, children, path, key) => {
 	let tag = tag_;
-	const attrs = attrs_;
+	const attrs = Object.assign({}, attrs_);
 	const baseClass = attrs.class || '';
 	const otherClass = attrs.className || '';
 	const fullClass = `${baseClass} ${otherClass}`;
@@ -181,7 +181,7 @@ const iCreateElement = (tag_, attrs_, children, path) => {
 	}
 
 	return {
-		type: idomTypes.CreateElement, tag, attrs, children, path
+		type: idomTypes.CreateElement, tag, attrs, children, path, key
 	};
 };
 const iBind = (path) => ({ type: idomTypes.Bind, path });
@@ -214,8 +214,11 @@ const keyedImpl = (key) => (domF) => (domClass) => {
 	return res;
 };
 
+let createCount = 0;
+let flatMapCount = 0;
 // -- createElementImpl :: forall e c a. String -> Attrs -> (DOMClass e c -> a) -> DOMClass e c -> ImpulseEl a
 const createElementImpl = (tag) => (attrs) => (domF) => (domClass) => {
+	const key = getParentEnv(domClass).nextKey;
 	const { innerRes, children, uniquePath } = altered(env => prepareKeyForType(tag, false)(env).mkFresh(tag))(currParentEnvBySysId)(domClass)(
 		() => {
 			const innerRes = domF(domClass);
@@ -225,13 +228,16 @@ const createElementImpl = (tag) => (attrs) => (domF) => (domClass) => {
 	);
 
 	getParentEnv(domClass).children.push(
-		iCreateElement(tag, attrs, children, uniquePath)
+		iCreateElement(tag, attrs, children, uniquePath, key)
 	);
 
+	createCount++;
 	const { e_el_mount } = getSysEnv(domClass);
 	const mkOn = (on) => {
 		const filtered = frp.filter((mount) => { return mount.path === uniquePath; })(e_el_mount);
-		return frp.flatMap(({ elm, path }) => {
+		const flattened = frp.flatMap(({ elm, path }) => {
+			flatMapCount++;
+			console.log('flatMapping:', path, elm);
 			const _ons = elm._ons || {};
 			if (_ons[on]) {
 				return _ons[on];
@@ -239,12 +245,15 @@ const createElementImpl = (tag) => (attrs) => (domF) => (domClass) => {
 			const e = frp.mkEvent((pushSelf) => () => {
 				const push = v => pushSelf(v)();
 				elm.addEventListener(on, push);
-				return () => elm.removeEventListener(on, push);
+				return () => {
+					elm.removeEventListener(on, push);
+				};
 			});
 			_ons[on] = e;
 			elm._ons = _ons;
 			return e;
 		})(filtered);
+		return flattened;
 	};
 	return { innerRes, mkOn };
 };
@@ -508,10 +517,18 @@ const run = (env) => (domF) => (postRender) => {
 					const children = fromIDOMtoVDOM(idom.children);
 					const hook = {
 						insert ({ elm }) {
+							console.log('inserting:', idom.path, elm);
+							frp.push({ path: idom.path, elm })(e_el_mount)();
+						},
+						postpatch (ignore, { elm }) {
 							frp.push({ path: idom.path, elm })(e_el_mount)();
 						}
 					};
-					return [SNABBDOM.h(idom.tag, { attrs: idom.attrs, hook }, children)];
+					const data = { attrs: idom.attrs, hook };
+					if (idom.key) {
+						data.key = idom.key;
+					}
+					return [SNABBDOM.h(idom.tag, data, children)];
 				},
 				[idomTypes.Text] (idom) {
 					return [idom.text];
