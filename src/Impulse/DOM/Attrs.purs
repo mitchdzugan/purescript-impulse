@@ -15,12 +15,12 @@ type DOMAttrs = { className :: M.Maybe String
                 , value :: M.Maybe String
                 , selected :: M.Maybe Boolean
                 }
-type Attrs a = S.State DOMAttrs a
+type Attrs = S.State DOMAttrs Unit
 
-anil :: Attrs Unit
+anil :: Attrs
 anil = pure unit
 
-classNames :: S.State (L.List String) Unit -> Attrs Unit
+classNames :: S.State (L.List String) Unit -> Attrs
 classNames m = do
   let classes = L.foldl (\a b -> a <> " " <> b) ""
                       $ L.reverse
@@ -30,11 +30,11 @@ classNames m = do
 cn :: String -> S.State (L.List String) Unit
 cn s = S.modify_ $ L.Cons s
 
-className :: String -> Attrs Unit
+className :: String -> Attrs
 className classAsStr =
   S.modify_ _ { className = M.Just classAsStr }
 
-styles :: S.State (L.List String) Unit -> Attrs Unit
+styles :: S.State (L.List String) Unit -> Attrs
 styles m = do
   let styleList = S.execState m L.Nil
       el_style = L.foldl (\a b -> b <> "; " <> a) "" styleList
@@ -43,37 +43,37 @@ styles m = do
 style :: String -> String -> S.State (L.List String) Unit
 style prop val = S.modify_ $ L.Cons $ prop <> ": " <> val
 
-id :: String -> Attrs Unit
+id :: String -> Attrs
 id i =
   S.modify_ _ { id = M.Just i }
 
-href :: String -> Attrs Unit
+href :: String -> Attrs
 href uri =
   S.modify_ _ { href = M.Just uri }
 
-rows :: Int -> Attrs Unit
+rows :: Int -> Attrs
 rows n =
   S.modify_ _ { rows = M.Just n }
 
-disabled :: Boolean -> Attrs Unit
+disabled :: Boolean -> Attrs
 disabled b =
   S.modify_ _ { disabled = M.Just b }
 
-attr_value :: String -> Attrs Unit
+attr_value :: String -> Attrs
 attr_value v =
   S.modify_ _ { value = M.Just v }
 
-attr_type :: String -> Attrs Unit
+attr_type :: String -> Attrs
 attr_type v =
   S.modify_ _ { type = M.Just v }
 
-selected :: Boolean -> Attrs Unit
+selected :: Boolean -> Attrs
 selected true =
   S.modify_ _ { selected = M.Just $ true }
 selected false =
   S.modify_ _ { selected = M.Nothing }
 
-mkAttrs :: Attrs Unit -> DOMAttrs
+mkAttrs :: Attrs -> DOMAttrs
 mkAttrs m =
   S.execState m { className: M.Nothing
                 , style: M.Nothing

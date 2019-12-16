@@ -1,17 +1,22 @@
 "use strict";
 
-const { makeSignal, makeEvent, zipWith } = require('ps-impulse-impl');
-exports.makeSignal = e => init => () => makeSignal(e, init);
-exports.off = s => s.off;
-exports.consumeImpl = builder => f => s => () => {
-    const res = s.consume(v => f(v)());
-    return builder(res.res)(res.off);
-};
-exports.val = s => () => s.getVal();
-exports.changed = s => s.changed;
-exports.dedupImpl = p => s => () => s.dedup((v1, v2) => p(v1)(v2));
-exports.tag = e => s => s.tagEvent(e);
-exports.fmap = f => s => () => s.fmap(f);
-exports.flatMap = fs => s => () => s.flatMap(v => fs(v)());
-exports.zipWith = f => s1 => s2 => () => zipWith((a, b) => f(a)(b), s1, s2);
-exports.ofVal = v => () => makeSignal(makeEvent(), v);
+const frp = require('ps-impulse-impl');
+
+exports.s_destroy = frp.s_destroy;
+exports.s_subRes = frp.s_subRes;
+exports.s_unsub = frp.s_unsub;
+exports.s_sub = frp.s_sub;
+exports.s_inst = frp.s_inst;
+exports.s_changed = frp.s_changed;
+exports.s_tagWith = frp.s_tagWith;
+
+exports.s_fromImpl = frp.s_fromImpl;
+exports.s_fmapImpl = frp.s_fmapImpl;
+exports.s_constImpl = frp.s_constImpl;
+exports.s_zipWithImpl = frp.s_zipWithImpl;
+exports.s_flattenImpl = frp.s_flattenImpl;
+exports.s_dedupImpl = frp.s_dedupImpl;
+
+exports.s_buildImpl = frp.s_buildImpl;
+exports.sigBuildToRecordImpl = frp.sigBuildToRecordImpl;
+exports.s_builderInstImpl = frp.s_inst;

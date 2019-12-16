@@ -1,31 +1,20 @@
 "use strict";
 
-const { makeEvent, joinEvents, adaptEvent } = require('ps-impulse-impl');
+const frp = require('ps-impulse-impl');
 
-exports.makeEvent = (eff) => () => makeEvent(eff);
-exports.push = v => e => () => e.push(v);
-exports.consume = f => e => () => e.consume(v => f(v)());
-exports.fmap = f => e => e.fmap(f);
-exports.filter = f => e => e.filter(f);
-exports.reduce = f => init => e => e.reduce(f, init);
-exports.flatMap = f => e => e.flatMap(f);
-exports.join = e1 => e2 => joinEvents(e1, e2);
-exports.makeFrom = e => f_eff => {
-	return e.mapEff((v, push) => f_eff(v)(p => () => push(p))());
-};
-exports.adaptEvent = sub => unsub => () => adaptEvent(
-	(push) => (
-		() => sub(val => push(val)())
-	),
-	unsubVal => unsub(unsubVal)()
-);
-exports.timer = (interval) => {
-	let count = 0;
-	let e = { push: () => {} };
-	const id = setInterval(
-		() => { e.push(count); count++; }, interval
-	);
-	e = makeEvent(() => () => clearInterval(id));
-	return e;
-};
-exports.never = makeEvent();
+exports.mkEvent = frp.mkEvent;
+exports.push = frp.push;
+exports.consume = frp.consume;
+exports.rebuildBy = frp.rebuildBy;
+exports.fmap = frp.fmap;
+exports.filter = frp.filter;
+exports.reduce = frp.reduce;
+exports.flatMap = frp.flatMap;
+exports.join = frp.join;
+exports.dedupImpl = frp.dedupImpl;
+exports.preempt = frp.preempt;
+exports.never = frp.never;
+exports.tagWith = frp.tagWith;
+exports.timer = frp.timer;
+exports.debounce = frp.debounce;
+exports.throttle = frp.throttle;
