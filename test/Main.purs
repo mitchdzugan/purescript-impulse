@@ -1,15 +1,15 @@
 module Test.Main where
 
 import Debug.Trace
-import Impulse.Native.DOM.Attrs
+import Impulse.DOM.Attrs
 import Prelude
 
 import Data.Symbol (class IsSymbol, SProxy(..))
 import Effect (Effect)
 import Effect.Class (liftEffect)
 import Effect.Console (log)
-import Impulse.Native.BetterDOM as DOM
-import Impulse.Native.FRP as FRP
+import Impulse.DOM as DOM
+import Impulse.FRP as FRP
 
 test :: DOM {} {} Unit
 test = do

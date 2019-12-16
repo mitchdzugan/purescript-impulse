@@ -1,6 +1,7 @@
 module Test.UI where
 
-import Prelude (Unit, bind, discard, flip, pure, show, unit, whenM, ($), (*), (+), (/), (<>), (=<<), (>))
+import Prelude
+{-}
 import Data.Symbol (SProxy(..))
 import Effect (Effect)
 import Effect.Class.Console (log)
@@ -70,3 +71,6 @@ attachApp :: Effect Unit
 attachApp = do
   markup <- toMarkup {} app
   attach "app" {} app
+-}
+
+attachApp = pure unit
