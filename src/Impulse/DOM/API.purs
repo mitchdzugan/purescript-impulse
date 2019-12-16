@@ -38,6 +38,9 @@ module Impulse.DOM.API
        , withAlteredEnv
        -- types required to be exported but should remain unused
        , DOMClass
+
+       , dnil
+       , _eff
        ) where
 
 import Prelude
@@ -224,3 +227,11 @@ toMarkup :: forall e a. e -> DOM e {} a -> Effect (ImpulseSSR a)
 toMarkup envInit dom = toMarkupImpl envInit $ runReader dom
 
 ------------------------------------
+
+foreign import _effImpl :: forall e c a. Effect a -> DOMClass e c -> a
+
+_eff :: forall e c a. Effect a -> DOM e c a
+_eff eff = ask <#> _effImpl eff
+
+dnil :: forall e c. DOM e c Unit
+dnil = pure unit

@@ -5,8 +5,11 @@ module Impulse.DOM.Util
        , e_collectAndReduce
        , d_clone
        , s_extract
+       , s_extract_
        , d_read
        , d_readAs
+       , s_bindKeyedDOM
+       , s_bindKeyedDOM_
        ) where
 
 import Prelude
@@ -169,3 +172,14 @@ d_clone = API.d_apply >>> API.d_stash
 
 s_extract :: forall e c a. FRP.Signal (ImpulseStash a) -> DOM e c (ImpulseStash (FRP.Signal a))
 s_extract = flip API.s_bindDOM API.d_apply >>> API.d_stash
+
+s_extract_ :: forall e c a. FRP.Signal (ImpulseStash a) -> DOM e c (ImpulseStash Unit)
+s_extract_ = flip API.s_bindDOM_ API.d_apply_ >>> API.d_stash
+
+s_bindKeyedDOM :: forall e c a b. (Show a) => FRP.Signal a -> (a -> DOM e c b) -> DOM e c (FRP.Signal b)
+s_bindKeyedDOM signal inner = do
+  API.s_bindDOM signal \val -> API.keyed (show val) $ inner val
+
+s_bindKeyedDOM_ :: forall e c a b. (Show a) => FRP.Signal a -> (a -> DOM e c b) -> DOM e c Unit
+s_bindKeyedDOM_ signal inner = do
+  API.s_bindDOM_ signal \val -> API.keyed (show val) $ inner val

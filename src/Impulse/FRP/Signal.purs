@@ -13,6 +13,7 @@ module Impulse.FRP.Signal
        , s_inst
        , s_changed
        , s_tagWith
+       , s_tag
        , s_reduce
        , s_reduce_e
        , s_reduce_s
@@ -21,6 +22,7 @@ module Impulse.FRP.Signal
        , SigBuild
        , SigBuilder
        , SubRes
+       , eff_sigBuilder
        ) where
 
 import Control.Monad.Reader
@@ -56,6 +58,9 @@ foreign import s_zipWithImpl :: forall a b c. (a -> b -> c) -> Signal a -> Signa
 foreign import s_flattenImpl :: forall a. Signal (Signal a) -> SigClass -> Signal a
 foreign import s_dedupImpl :: forall a. (a -> a -> Boolean) -> Signal a -> SigClass -> Signal a
 foreign import s_builderInstImpl :: forall a. Signal a -> SigClass -> a
+
+s_tag :: forall a b. Event.Event a -> Signal b -> Event.Event b
+s_tag = s_tagWith (\_ b -> b)
 
 foreign import s_buildImpl :: forall a. (SigClass -> Signal a) -> SigBuild a
 foreign import sigBuildToRecordImpl ::
