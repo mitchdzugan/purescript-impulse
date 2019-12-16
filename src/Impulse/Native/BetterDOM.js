@@ -9,6 +9,8 @@ const patch = snabbdom.init([
 	require('snabbdom/modules/attributes').default,
 ]);
 
+const SNABBDOM = { h, patch };
+
 const isOneWord = s => typeof s === 'string' && !s.trim().includes(' ');
 
 const flatMap = (f) => (a) => {
@@ -125,8 +127,7 @@ const prepareKeyForType = (type) => (parentEnv) => {
 	return parentEnv;
 };
 
-const altered = (newVal) => altered_f(() => newVal);
-const altered_f = (f_newVal) => (obj) => (domClass) => (f) => {
+const altered = (f_newVal) => (obj) => (domClass) => (f) => {
 	const curr = getSys(obj)(domClass);
 	setSys(obj)(f_newVal(curr))(domClass);
 	const res = f();
@@ -143,10 +144,31 @@ const idomTypes = {
 	Text: 'Text'
 };
 
-const iCreateElement = (tag, attrs, children, path) => ({
-	tag, attrs, children, path,
-	type: idomTypes.CreateElement
-});
+const iCreateElement = (tag_, attrs_, children, path) => {
+	let tag = tag_;
+	const attrs = attrs_;
+	const baseClass = attrs.class || '';
+	const otherClass = attrs.className || '';
+	const fullClass = `${baseClass} ${otherClass}`;
+	attrs.class = fullClass.trim();
+	if (attrs.class === '') {
+		delete attrs.class;
+	}
+	delete attrs.className;
+
+	if (attrs.id && isOneWord(attrs.id)) {
+		tag += `#${attrs.id.trim()}`;
+		delete attrs.id;
+	}
+	if (attrs.class && isOneWord(attrs.class)) {
+		tag += `.${attrs.class}`;
+		delete attrs.class;
+	}
+
+	return {
+		type: idomTypes.CreateElement, tag, attrs, children, path
+	};
+};
 const iBind = (path) => ({ type: idomTypes.Bind, path });
 const iStash = (stashId) => ({ type: idomTypes.Stash, stashId });
 const iText = (text) => ({ type: idomTypes.Text, text });
@@ -161,7 +183,7 @@ const envImpl = getEnv;
 
 // -- withAlteredEnvImpl :: forall e1 e2 c a. (e1 -> e2) -> (DOMClass e2 c -> a) -> DOMClass e1 c -> a
 const withAlteredEnvImpl = (f) => (domF) => (domClass) => (
-	altered_f(f)(currEnvBySysId)(domClass)(
+	altered(f)(currEnvBySysId)(domClass)(
 		() => domF(domClass)
 	)
 );
@@ -179,7 +201,7 @@ const keyedImpl = (key) => (domF) => (domClass) => {
 
 // -- createElementImpl :: forall e c a. String -> Attrs -> (DOMClass e c -> a) -> DOMClass e c -> ImpulseEl a
 const createElementImpl = (tag) => (attrs) => (domF) => (domClass) => {
-	const { innerRes, children, path } = altered_f(env => env.mkFresh(tag))(currParentEnvBySysId)(domClass)(
+	const { innerRes, children, path } = altered(env => env.mkFresh(tag))(currParentEnvBySysId)(domClass)(
 		() => {
 			const innerRes = domF(domClass);
 			const { children, path } = getParentEnv(domClass);
@@ -235,7 +257,7 @@ const e_collectImpl = (addCollector) => (getCollector) => (domFE) => (domClass) 
 			}
 		}
 	);
-	return altered_f(modBindEnv)(currBindEnvBySysId)(domClass)(
+	return altered(modBindEnv)(currBindEnvBySysId)(domClass)(
 		() => {
 			const { res } = frp.preempt(({ e }) => e)((e) => {
 				const res = domFE(e)(domClass);
@@ -258,7 +280,7 @@ const s_bindDOMImpl = (s) => (domFS) => (domClass) => {
 	const e_res = frp.mkEvent();
 	const e_collectors = frp.mkEvent();
 	let isFirst = true;
-	const { signal, path } = altered_f(env => prepareKeyForType('s_bind')(env).mkFresh('s_bind'))(currParentEnvBySysId)(domClass)(
+	const { signal, path } = altered(env => prepareKeyForType('s_bind')(env).mkFresh('s_bind'))(currParentEnvBySysId)(domClass)(
 		() => {
 			const prevBindEnv = getBindEnv(domClass);
 			const bindEnv = prevBindEnv.mkFresh();
@@ -330,7 +352,7 @@ const s_bindDOMImpl = (s) => (domFS) => (domClass) => {
 
 // -- s_useImpl :: forall e c a. Sig.SigBuild a -> DOMClass e c -> Sig.Signal a
 const s_useImpl = (sbf) => (domClass) => {
-	const res = altered_f(env => prepareKeyForType('s_use')(env).mkFresh('s_use'))(currParentEnvBySysId)(domClass)(
+	const res = altered(env => prepareKeyForType('s_use')(env).mkFresh('s_use'))(currParentEnvBySysId)(domClass)(
 		() => {
 			const { path } = getParentEnv(domClass);
 			const sysEnv = getSysEnv(domClass);
@@ -361,7 +383,7 @@ const d_stashImpl = (domF) => (domClass) => {
 	const stashId = sysEnv.nextStashId;
 	sysEnv.nextStashId++;
 	sysEnv.stashUsage[stashId] = 0;
-	return altered_f(env => prepareKeyForType(`d_stash.${stashId}`)(env).mkFresh(`d_stash.${stashId}`))(currParentEnvBySysId)(domClass)(
+	return altered(env => prepareKeyForType(`d_stash.${stashId}`)(env).mkFresh(`d_stash.${stashId}`))(currParentEnvBySysId)(domClass)(
 		() => {
 			const res = domF(domClass);
 			const { children, path } = getParentEnv(domClass);
@@ -384,8 +406,13 @@ const d_applyImpl = ({ stashId, res }) => (domClass) => {
 	return res;
 };
 
-// -- d_memoImpl :: forall e c a b. Eq a => H.Hashable a => a -> (a -> DOMClass e c -> b) -> DOMClass e c -> b
-const d_memoImpl = () => {};
+// -- d_memoImpl :: forall e c a b. (a -> Int) -> a -> (a -> DOMClass e c -> b) -> DOMClass e c -> b
+const d_memoImpl = (hash) => (a) => (domFA) => (domClass) => {
+	const bindEnv = getBindEnv(domClass);
+	const res = altered(env => prepareKeyForType('d_memo')(env).mkFresh('d_memo'))(currParentEnvBySysId)(domClass)(
+		() => {}
+	);
+};
 
 // -- attachImpl :: forall e a. String -> e -> (DOMClass e {} -> a) -> Effect (ImpulseAttachment a)
 const attachImpl = (id) => (env) => (domF) => () => {
@@ -406,36 +433,18 @@ const attachImpl = (id) => (env) => (domF) => () => {
 	const res = resultSignal.getVal();
 	const off = frp.consume(
 		() => () => {
-			const {idomByPath, stashes, stashUsage} = getSysEnv(domClass);
+			const { idomByPath, stashes, stashUsage } = getSysEnv(domClass);
 			const rootIdom = idomByPath[ROOT_BIND];
 			let fromIDOMtoVDOM;
 			const toVDOMsObj = {
 				[idomTypes.CreateElement] (idom) {
 					const children = fromIDOMtoVDOM(idom.children);
-					let tag = idom.tag;
-					const attrs = idom.attrs;
-					const baseClass = attrs.class || '';
-					const otherClass = attrs.className || '';
-					const fullClass = `${baseClass} ${otherClass}`;
-					delete attrs.className;
-					attrs.class = fullClass.trim() === '' ? undefined : fullClass.trim();
-
-					if (attrs.id && isOneWord(attrs.id)) {
-						tag += `#${attrs.id.trim()}`;
-						delete attrs.id;
-					}
-					if (attrs.class && isOneWord(attrs.class)) {
-						tag += `.${attrs.class}`;
-						delete attrs.class;
-					}
-
 					const hook = {
 						insert ({ elm }) {
 							frp.push({ path: idom.path, elm })(e_el_mount)();
 						}
 					};
-					const data = { attrs, hook };
-					return [h(tag, data, children)];
+					return [SNABBDOM.h(idom.tag, { attrs: idom.attrs, hook }, children)];
 				},
 				[idomTypes.Text] (idom) {
 					return [idom.text];
@@ -455,21 +464,14 @@ const attachImpl = (id) => (env) => (domF) => () => {
 			};
 			fromIDOMtoVDOM = flatMap(toVDOMs);
 			const vdom = fromIDOMtoVDOM(rootIdom);
-			const curr = h('div', {}, vdom);
-			patch(prev, curr);
+			const curr = SNABBDOM.h('div', {}, vdom);
+			SNABBDOM.patch(prev, curr);
 			Object.keys(stashUsage).forEach((stashId) => {
-				if (stashUsage[stashId] > 0) {
-					return;
-				}
-
+				if (stashUsage[stashId] > 0) { return; }
 				delete idomByPath[stashes[stashId]];
 				delete stashes[stashId];
 				delete stashUsage[stashId];
 			});
-			console.log(' :: PostRender :: ');
-			console.log(Object.keys(idomByPath));
-			console.log(Object.keys(stashUsage));
-			console.log(Object.keys(stashes));
 			prev = curr;
 		}
 	)(

@@ -134,7 +134,7 @@ foreign import d_stashImpl :: forall e c a. (DOMClass e c ->  a) -> DOMClass e c
 
 foreign import d_applyImpl :: forall e c a. ImpulseStash a -> DOMClass e c -> a
 
-foreign import d_memoImpl :: forall e c a b. Eq a => H.Hashable a => a -> (a -> DOMClass e c -> b) -> DOMClass e c -> b
+foreign import d_memoImpl :: forall e c a b. (a -> Int) -> a -> (a -> DOMClass e c -> b) -> DOMClass e c -> b
 
 ------------------------------------
 
@@ -273,8 +273,8 @@ d_apply stash = ask <#> d_applyImpl stash
 d_apply_ :: forall e c a. ImpulseStash a -> DOM e c Unit
 d_apply_ stash = d_apply stash <#> const unit
 
-d_memo :: forall e c a b. Eq a => H.Hashable a => a -> (a -> DOM e c b) -> DOM e c b
-d_memo v inner = ask <#> d_memoImpl v (runReader <<< inner)
+d_memo :: forall e c a b. H.Hashable a => a -> (a -> DOM e c b) -> DOM e c b
+d_memo v inner = ask <#> d_memoImpl H.hash v (runReader <<< inner)
 
 
 -- API UTILS -----------------------
