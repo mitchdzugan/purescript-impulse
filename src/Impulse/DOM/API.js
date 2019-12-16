@@ -642,3 +642,5 @@ exports.toJSAttrs = (fromMaybe) => (raw_attrs) => {
 	});
 	return attrs;
 };
+
+exports._effImpl = (eff) => (domClass) => eff();
