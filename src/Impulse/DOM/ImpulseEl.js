@@ -16,3 +16,6 @@ exports.onMouseOver = ({ mkOn }) => mkOn('mouseover');
 exports.onMouseUp = ({ mkOn }) => mkOn('mouseup');
 exports.onTransitionEnd = ({ mkOn }) => mkOn('transitionend');
 exports.onScroll = ({ mkOn }) => mkOn('scroll');
+exports.targetImpl = just => nothing => e => () => (
+	e.target ? just(e.target) : nothing
+);
