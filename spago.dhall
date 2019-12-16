@@ -11,7 +11,6 @@ You can edit this file as you like.
     , "effect"
     , "psci-support"
     , "record"
-    , "run"
     , "transformers"
     , "unordered-collections"
     ]
