@@ -90,7 +90,6 @@ const mkBindEnv = () => ({
 		this.renderOffs.forEach(off => off());
 		this.renderOffs = [];
 		this.collectors = freshCollectors(this.collectorSpecs);
-		this.collectorSpecs = this.collectorSpecs;
 		this.used = {};
 	},
 	mkFresh () {
@@ -114,7 +113,7 @@ const mkParentEnv = (path = '', uniquePath = null) => ({
 	mkFresh (step) {
 		const res = mkParentEnv(
 			`${step}${this.nextKey ? `.${this.nextKey}` : ''} | ${this.path}`,
-			`${step}${this.nextKey ? `.${this.nextKey}` : `.${this.nextUniqueKey}`} | ${this.uniquePath}`
+			`${step}${this.nextKey ? `.${this.nextKey}` : (!this.nextUniqueKey ? '' : `.${this.nextUniqueKey}`)} | ${this.uniquePath}`
 		);
 		this.nextKey = null;
 		this.nextUniqueKey = null;
@@ -206,11 +205,14 @@ const withAlteredEnvImpl = (f) => (domF) => (domClass) => (
 // -- keyedImpl :: forall e c a. String -> (DOMClass e c -> a) -> DOMClass e c -> a
 const keyedImpl = (key) => (domF) => (domClass) => {
 	const preEnv = getParentEnv(domClass);
-	preEnv.nextKey = key;
+	const { children } = preEnv;
+	preEnv.nextKey = null;
+	const newEnv = preEnv.mkFresh(`keyed.${key}`);
+	setParentEnv(newEnv)(domClass);
+	newEnv.nextKey = key;
 	const res = domF(domClass);
-	const postEnv = getParentEnv(domClass);
-	postEnv.nextKey = null;
-	setParentEnv(postEnv)(domClass);
+	newEnv.children.forEach(child => children.push(child));
+	setParentEnv(preEnv)(domClass);
 	return res;
 };
 
@@ -227,31 +229,36 @@ const createElementImpl = (tag) => (attrs) => (domF) => (domClass) => {
 		}
 	);
 
+	getParentEnv(domClass).nextKey = null;
 	getParentEnv(domClass).children.push(
 		iCreateElement(tag, attrs, children, uniquePath, key)
 	);
 
 	createCount++;
 	const { e_el_mount } = getSysEnv(domClass);
+	// console.log('rendering', { uniquePath });
 	const mkOn = (on) => {
 		const filtered = frp.filter((mount) => { return mount.path === uniquePath; })(e_el_mount);
-		const flattened = frp.flatMap(({ elm, path }) => {
+		const flattened = frp.flatMap(({ elm }) => {
 			flatMapCount++;
-			console.log('flatMapping:', path, elm);
+			// console.log(path);
+			// console.log('flatMapping :::', path, elm);
 			const _ons = elm._ons || {};
 			if (_ons[on]) {
-				return _ons[on];
+				return frp.fmap(a => a)(_ons[on]);
 			}
 			const e = frp.mkEvent((pushSelf) => () => {
 				const push = v => pushSelf(v)();
+				// console.log('A el _ ', path);
 				elm.addEventListener(on, push);
 				return () => {
+					// console.log('R el _ ', path);
 					elm.removeEventListener(on, push);
 				};
 			});
-			_ons[on] = e;
+			_ons[on] = frp.deferOff(10)(e);
 			elm._ons = _ons;
-			return e;
+			return frp.fmap(a => a)(_ons[on]);
 		})(filtered);
 		return flattened;
 	};
@@ -268,6 +275,7 @@ const textImpl = (text) => (domClass) => {
 
 // -- e_collectImpl :: forall e c1 c2 a b. (c1 -> Collector a -> c2) -> (c2 -> Collector a) -> (FRP.Event a -> DOMClass e c2 -> b) -> DOMClass e c1 -> b
 const e_collectImpl = (addCollector) => (getCollector) => (domFE) => (domClass) => {
+	getParentEnv(domClass).nextKey = null;
 	const coll = makeColl();
 	const modBindEnv = (bindEnv) => Object.assign(
 		{},
@@ -301,6 +309,7 @@ const e_emitImpl = (getCollector) => (e) => (domClass) => {
 
 // -- s_bindDOMImpl :: forall e c a b. FRP.Signal a -> (a -> DOMClass e c -> b) -> DOMClass e c -> FRP.Signal b
 const s_bindDOMImpl = (s) => (domFS) => (domClass) => {
+	getParentEnv(domClass).nextKey = null;
 	const e_res = frp.mkEvent();
 	const e_collectors = frp.mkEvent();
 	let isFirst = true;
@@ -311,6 +320,7 @@ const s_bindDOMImpl = (s) => (domFS) => (domClass) => {
 			const env = getEnv(domClass);
 			const parentEnv = getParentEnv(domClass);
 			const { path } = parentEnv;
+			// console.log('s_bindDOM', { path });
 			const {
 				off, res: { res, collectors }
 			} = frp.s_sub((val) => () => {
@@ -341,6 +351,7 @@ const s_bindDOMImpl = (s) => (domFS) => (domClass) => {
 			})(s)();
 			const { destroy, signal } = frp.s_buildImpl(frp.s_fromImpl(e_res)(res))();
 			const shutdown = () => {
+				// console.log('offing s_bindDOM', { path });
 				const sysEnv = getSysEnv(domClass);
 				destroy();
 				off();
@@ -370,7 +381,6 @@ const s_bindDOMImpl = (s) => (domFS) => (domClass) => {
 		}
 	);
 	getParentEnv(domClass).children.push(iBind(path));
-	getParentEnv(domClass).nextKey = null;
 	return signal;
 };
 
@@ -379,6 +389,7 @@ const s_useImpl = (sbf) => (domClass) => {
 	const res = altered(env => prepareKeyForType('s_use')(env).mkFresh('s_use'))(currParentEnvBySysId)(domClass)(
 		() => {
 			const { path } = getParentEnv(domClass);
+			// console.log('s_use', { path });
 			const sysEnv = getSysEnv(domClass);
 			const bindEnv = getBindEnv(domClass);
 			bindEnv.used[path] = true;
@@ -389,6 +400,7 @@ const s_useImpl = (sbf) => (domClass) => {
 			sysEnv.signals[path] = signal;
 			const offs = bindEnv.offsByPath[path] || [];
 			offs.push(() => {
+				// console.log('offing s_use', { path });
 				destroy();
 				delete sysEnv.signals[path];
 				delete bindEnv.offsByPath[path];
@@ -403,19 +415,20 @@ const s_useImpl = (sbf) => (domClass) => {
 
 // -- d_stashImpl :: forall e c a. (DOMClass e c ->  a) -> DOMClass e c -> ImpulseStash a
 const d_stashImpl = (domF) => (domClass) => {
-	const sysEnv = getSysEnv(domClass);
-	const stashId = sysEnv.nextStashId;
-	sysEnv.nextStashId++;
-	sysEnv.stashUsage[stashId] = 0;
-	return altered(env => prepareKeyForType(`d_stash.${stashId}`)(env).mkFresh(`d_stash.${stashId}`))(currParentEnvBySysId)(domClass)(
+	const res = altered(env => prepareKeyForType('d_stash')(env).mkFresh('d_stash'))(currParentEnvBySysId)(domClass)(
 		() => {
+			const sysEnv = getSysEnv(domClass);
 			const res = domF(domClass);
 			const { children, path } = getParentEnv(domClass);
+			const stashId = path;
 			sysEnv.idomByPath[path] = children;
 			sysEnv.stashes[stashId] = path;
+			sysEnv.stashUsage[stashId] = 0;
 			return { stashId, res };
 		}
 	);
+	getParentEnv(domClass).nextKey = null;
+	return res;
 };
 
 // -- d_applyImpl :: forall e c a. ImpulseStash a -> DOMClass e c -> a
@@ -474,6 +487,8 @@ const d_memoImpl = (getHash) => (a) => (domFA) => (domClass) => {
 			return valByHash[hash];
 		}
 	);
+	getParentEnv(domClass).nextKey = null;
+	return res;
 };
 
 // TODO I really think postRender should work on IDOM instead of
@@ -517,10 +532,12 @@ const run = (env) => (domF) => (postRender) => {
 					const children = fromIDOMtoVDOM(idom.children);
 					const hook = {
 						insert ({ elm }) {
-							console.log('inserting:', idom.path, elm);
+							// console.log('inserting:', idom.path, elm);
+							// console.log('inserting', { path: idom.path });
 							frp.push({ path: idom.path, elm })(e_el_mount)();
 						},
 						postpatch (ignore, { elm }) {
+							// console.log('patching', { path: idom.path });
 							frp.push({ path: idom.path, elm })(e_el_mount)();
 						}
 					};
@@ -602,8 +619,8 @@ const toMarkupImpl = (env) => (domF) => () => {
 			const split1 = sel.split('#');
 			const hasId = split1.length > 1;
 			const split2 = hasId ?
-						split1[1].split('.') :
-						split1[0].split('.');
+				split1[1].split('.') :
+				split1[0].split('.');
 			const hasClass = split2.length > 1;
 			tag = hasId ? split1[0] : split2[0];
 			id = !hasId ? null : split2[0];
@@ -660,4 +677,16 @@ exports.toJSAttrs = (fromMaybe) => (raw_attrs) => {
 	return attrs;
 };
 
-exports._effImpl = (eff) => (domClass) => eff();
+exports._effImpl = (eff) => () => eff();
+
+let div, button, span, text, s_bindDOM, s_reduce ;
+
+const ui = () => {
+	const d_button = button({}, () => {
+		text('Click Me!');
+	});
+	const s_clicks = s_reduce(d_button.onClick, (agg, onclickevent) => agg + 1, 0);
+	s_bindDOM(s_clicks, (clicks) => {
+		span({}, text(`Number of clicks: ${clicks}`));
+	});
+};

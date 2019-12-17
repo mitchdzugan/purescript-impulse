@@ -18,3 +18,4 @@ exports.tagWith = frp.tagWith;
 exports.timer = frp.timer;
 exports.debounce = frp.debounce;
 exports.throttle = frp.throttle;
+exports.deferOff = frp.deferOff;

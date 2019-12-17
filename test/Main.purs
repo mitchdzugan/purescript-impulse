@@ -18,7 +18,7 @@ test = do
   DOM.e_collectAndReduce p_clicks (\agg _ -> agg + 1) 0 do
     DOM.createElement_ "section" (className "section") do
       DOM.createElement_ "div" (className "testClass") do
-        DOM.s_bindDOM_ s $ \c -> DOM.s_bindDOM_ s2 \c2 -> do
+        DOM.keyed "ayyy lmao" $ DOM.s_bindDOM_ s $ \c -> DOM.s_bindDOM_ s2 \c2 -> do
           DOM.d_memo 1 $ const do
             text $ " ::[memo c, bound c2]:: [" <> (show c)
             DOM.s_bindDOM_ s2 \c2 -> do

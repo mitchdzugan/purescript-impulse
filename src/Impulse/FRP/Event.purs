@@ -59,6 +59,8 @@ foreign import debounce :: forall a. Int -> Event a -> Event a
 
 foreign import throttle :: forall a. Int -> Event a -> Event a
 
+foreign import deferOff :: forall a. Int -> Event a -> Event a
+
 foreign import tagWith :: forall a b c. (a -> b -> c) -> Event a -> Event b -> c -> Event c
 
 tagWithSkipPreR :: forall l r c. (l -> r -> c) -> Event l -> Event r -> Event c
