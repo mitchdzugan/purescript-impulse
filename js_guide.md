@@ -139,6 +139,7 @@ const ui12 = (I) => {
 		const d_button1 = I.button({}, (I) => (
 			I.text('Click for (+1)')
 		));
+		I.e_emit('counter', frp.fmap(() => (+1), d_button1.onClick);
 		I.s_bindDOM(s_counter, (counter) => (I) => {
 			I.span({}, (I) => (
 				I.text(`Points: ${counter}`)
@@ -147,7 +148,6 @@ const ui12 = (I) => {
 		const d_button2 = I.button({}, (I) => (
 			I.text('Click for (-1)')
 		));
-		I.e_emit('counter', frp.fmap(() => (+1), d_button1.onClick);
 		I.e_emit('counter', frp.fmap(() => (-1), d_button2.onClick);
 	});
 };
@@ -201,5 +201,5 @@ In this example we have split up the rendering into a few subcomponents. Notice 
 
 ```
 <!--stackedit_data:
-eyJoaXN0b3J5IjpbMTAzMTc2OTI0OV19
+eyJoaXN0b3J5IjpbMTUyNjA4MzQ0OSwxMDMxNzY5MjQ5XX0=
 -->
