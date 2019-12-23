@@ -194,12 +194,12 @@ const ui12 = (I) => {
 ```
 where `_N_` is the always updating to be the number of times the top button was clicked minus the number of times the bottom button was clicked.
 
-In this example we have split up the rendering into a few subcomponents. Notice that the `changeScoreButton` can be used anywhere that there is some `e_collect` above it listening to `Integer` events on `counter` and likewise `displayScore` can be used anywhere where there is some `upsertEnv` above it of a `Signal` of `Integer`s at `counter`. In purescript we will be able to represent and enforce these constraints in the type system.*emphasized text*
+In this example we have split up the rendering into a few subcomponents. Notice that the `changeScoreButton` can be used anywhere that there is some `e_collect` above it listening to `Integer` events on `counter` and likewise `displayScore` can be used anywhere where there is some `upsertEnv` above it of a `Signal` of `Integer`s at `counter`. In purescript we will be able to represent and enforce these constraints in the type system.
 
 ## d_stash(drawChildren) => ImpulseStash / d_apply(impulseStash)
 ```javascript
 
 ```
 <!--stackedit_data:
-eyJoaXN0b3J5IjpbLTU5NzcwNjAxLDEwMzE3NjkyNDldfQ==
+eyJoaXN0b3J5IjpbOTM4NDEwOTk4LDEwMzE3NjkyNDldfQ==
 -->
