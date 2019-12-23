@@ -139,7 +139,7 @@ const ui12 = (I) => {
 		const d_button1 = I.button({}, (I) => (
 			I.text('Click for (+1)')
 		));
-		I.e_emit('counter', frp.fmap(() => (+1), d_button1.onClick);
+		I.e_emit('counter', frp.fmap(() => 1, d_button1.onClick);
 		I.s_bindDOM(s_counter, (counter) => (I) => {
 			I.span({}, (I) => (
 				I.text(`Points: ${counter}`)
@@ -179,7 +179,7 @@ const displayScore = (I) => {
 };
 const ui12 = (I) => {
 	I.e_collectAndReduce('counter',(agg, change) => agg + change, 0, (I) => {
-		changeScoreButton((+1), 'Click for (+1)')(I);
+		changeScoreButton(  1 , 'Click for (+1)')(I);
 		displayScore(I);
 		changeScoreButton((-1), 'Click for (-1)')(I);
 	});
@@ -201,5 +201,5 @@ In this example we have split up the rendering into a few subcomponents. Notice 
 
 ```
 <!--stackedit_data:
-eyJoaXN0b3J5IjpbMTUyNjA4MzQ0OSwxMDMxNzY5MjQ5XX0=
+eyJoaXN0b3J5IjpbLTU5NzcwNjAxLDEwMzE3NjkyNDldfQ==
 -->
