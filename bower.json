@@ -21,6 +21,7 @@
         "purescript-effect": "^v2.0.1",
         "purescript-psci-support": "^v4.0.0",
         "purescript-record": "^v2.0.1",
-        "purescript-transformers": "^v4.2.0"
+        "purescript-transformers": "^v4.2.0",
+        "purescript-unordered-collections": "^v1.8.2"
     }
 }
