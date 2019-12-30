@@ -28,19 +28,19 @@ test = do
               stash <- d_stash do
                 li_ anil $ text "out"
                 li_ anil $ text "of"
-                li_ anil $ text "order?"
+                li_ anil $ text "order!?!"
               li_ (className "1" *> id "1") $ text "You"
               d_li <- li (id "2" *> className "2") $ text "thought"
               DOM.e_emit p_clicks $ DOM.onClick d_li
               li_ (className "3") $ text "this"
               li_ (id "3") $ text "was"
               d_apply stash
-          DOM.text $ show c
-          DOM.text " :: "
-          DOM.text $ show c2
-          d_button <- DOM.createElement "button" anil $ DOM.text "Click Me!"
-          DOM.e_emit p_clicks $ DOM.onClick d_button
-          pure unit
+            DOM.text $ show c
+            DOM.text " :: "
+            DOM.text $ show c2
+            d_button <- DOM.createElement "button" anil $ DOM.text "Click Me!"
+            DOM.e_emit p_clicks $ DOM.onClick d_button <#> \val -> trace { val } \_ -> val
+            pure unit
     s_clicks <- DOM.getEnv p_clicks
     DOM.s_bindDOM_ s_clicks \clicks -> do
       DOM.text "Clicks :: "
@@ -48,10 +48,10 @@ test = do
 
 ui :: Effect Unit
 ui = do
-  ssr <- DOM.toMarkup {} test
-  DOM.ssr_then ssr $ \markup res -> do
-    trace { markup, res } \_ -> pure unit
-    pure unit
+  -- ssr <- DOM.toMarkup {} test
+  -- DOM.ssr_then ssr $ \markup res -> do
+    -- trace { markup, res } \_ -> pure unit
+    -- pure unit
   _ <- attach "test" {} test
   pure unit
 

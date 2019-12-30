@@ -245,7 +245,7 @@ const deferOff = (ms) => (event) => {
 		(pushSelf) => {
 			softOn = true;
 			if (!isOn) {
-				offFn = consumeJS(pushSelf)(event)
+				offFn = consumeJS(v => softOn && pushSelf(v))(event);
 				isOn = true;
 			}
 			return () => {
@@ -259,13 +259,13 @@ const deferOff = (ms) => (event) => {
 						isOn = false;
 						offFn();
 						offFn = () => {};
-					}, 
+					},
 					ms
 				);
 			};
 		}
-	)
-}
+	);
+};
 
 // -- tagWith :: forall a b c. (a -> b -> c) -> Event a -> Event b -> c -> Event c
 const tagWith = (f) => (tagged) => (tagger) => {

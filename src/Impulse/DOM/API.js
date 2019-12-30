@@ -31,21 +31,36 @@ const setParentEnv = setSys(currParentEnvBySysId);
 const getEnv = getSys(currEnvBySysId);
 const setEnv = setSys(currEnvBySysId);
 
+let collCount = 0;
 const makeColl = (frp) => {
+	const collId = collCount++;
+	const collE = frp.mkEvent();
+	let isOff = false;
+	let offs = [];
 	const coll = {
+		collId,
+		offs,
 		es: {},
 		nextEId: 1,
 		getE () {
-			return frp.join(Object.values(coll.es));
-		}
+			return frp.fmap(a => a)(collE);
+		},
+		isOff,
+		off () { isOff = true; offs.forEach(off => off()); offs = []; }
 	};
 	coll.join = (e) => {
 		const eId = coll.nextEId;
 		coll.nextEId++;
-		coll.es[eId] = e;
-		return () => {
-			delete coll.es[eId];
-		};
+		const localOff = frp.consume(
+			(v) => () => {
+				// console.log({ isOff, eId, nextEId: coll.nextEId, v, collId });
+				if (!isOff) {
+					frp.push(v)(collE)();
+				}
+			}
+		)(e)();
+		offs.push(localOff);
+		return localOff;
 	};
 	return coll;
 };
@@ -61,12 +76,16 @@ const toArray = (list, carry) => {
 	return toArray(list.rest, carry);
 };
 
-const freshCollectors = (frp, node) => {
+const freshCollectors = (frp, bindEnv, node, offPrev = false) => {
 	if (!node) {
 		return {};
 	}
 
-	return node.addColl(freshCollectors(frp, node.rest))(makeColl(frp));
+	if (offPrev) {
+		// console.log('offing!', node.getColl(bindEnv.collectors));
+		node.getColl(bindEnv.collectors).off();
+	}
+	return node.addColl(freshCollectors(frp, bindEnv, node.rest, offPrev))(makeColl(frp));
 };
 
 const mkBindEnv = (frp) => ({
@@ -76,14 +95,16 @@ const mkBindEnv = (frp) => ({
 	collectorSpecs: null,
 	renderOffs: [],
 	refresh () {
+		// console.log(this.renderOffs);
+		// console.log('refreshing!!!');
 		this.renderOffs.forEach(off => off());
 		this.renderOffs = [];
-		this.collectors = freshCollectors(frp, this.collectorSpecs);
+		this.collectors = freshCollectors(frp, this, this.collectorSpecs, true);
 		this.used = {};
 	},
 	mkFresh () {
 		const fresh = mkBindEnv(frp);
-		fresh.collectors = freshCollectors(frp, this.collectorSpecs);
+		fresh.collectors = freshCollectors(frp, this, this.collectorSpecs);
 		fresh.collectorSpecs = this.collectorSpecs;
 		return fresh;
 	},
@@ -239,10 +260,14 @@ const createElementImpl_raw = (frp) => (tag) => (attrs) => (domF) => (domClass) 
 			const e = frp.mkEvent((pushSelf) => () => {
 				const push = v => pushSelf(v)();
 				// console.log('A el _ ', path);
-				elm.addEventListener(on, push);
+				const f = v => {
+					// console.log({ uniquePath, v });
+					push(v);
+				};
+				elm.addEventListener(on, f);
 				return () => {
 					// console.log('R el _ ', path);
-					elm.removeEventListener(on, push);
+					elm.removeEventListener(on, f);
 				};
 			});
 			_ons[on] = frp.deferOff(10)(e);
@@ -265,6 +290,9 @@ const textImpl = (text) => (domClass) => {
 // -- e_collectImpl :: forall e c1 c2 a b. (c1 -> Collector a -> c2) -> (c2 -> Collector a) -> (FRP.Event a -> DOMClass e c2 -> b) -> DOMClass e c1 -> b
 const e_collectImpl_raw = (frp) => (addCollector) => (getCollector) => (domFE) => (domClass) => {
 	getParentEnv(domClass).nextKey = null;
+	const bindEnv = getBindEnv(domClass);
+	const prevColl = getCollector(bindEnv.collectors);
+	// console.log({ prevColl });
 	const coll = makeColl(frp);
 	const modBindEnv = (bindEnv) => Object.assign(
 		{},
@@ -326,6 +354,9 @@ const s_bindDOMImpl_raw = (frp) => (s) => (domFS) => (domClass) => {
 					frp.push(res)(e_res)();
 					frp.push(bindEnv.collectors)(e_collectors)();
 					sysEnv.requestRender();
+					// console.log('---- stats ----', path);
+					// console.log(Object.keys(bindEnv.offsByPath));
+					// console.log(Object.keys(bindEnv.used));
 					Object.keys(bindEnv.offsByPath).forEach((offKey) => {
 						if (bindEnv.used[offKey]) {
 							return;
@@ -350,9 +381,29 @@ const s_bindDOMImpl_raw = (frp) => (s) => (domFS) => (domClass) => {
 				bindEnv.offsByPath = {};
 				bindEnv.renderOffs.forEach(off => off());
 				bindEnv.renderOffs = [];
+				const getCollectors = bindEnv.getCollectorsArray();
+				getCollectors.forEach((getCollector) => {
+					getCollector(bindEnv.collectors).off();
+				});
 				delete prevBindEnv.offsByPath[path];
 				delete sysEnv.idomByPath[path];
 			};
+			prevBindEnv.renderOffs.push(() => {
+				off();
+				destroy();
+				const getCollectors = bindEnv.getCollectorsArray();
+				getCollectors.forEach((getCollector) => {
+					getCollector(bindEnv.collectors).off();
+				});
+				bindEnv.renderOffs.forEach(off => off());
+				bindEnv.renderOffs = [];
+				/*
+				Object.values(bindEnv.offsByPath).forEach(
+					offs => offs.forEach(off => off())
+				);
+				bindEnv.offsByPath = {};
+				*/
+			});
 			const offs = prevBindEnv.offsByPath[path] || [];
 			offs.push(shutdown);
 			prevBindEnv.offsByPath[path] = offs;
@@ -407,10 +458,12 @@ const d_stashImpl = (domF) => (domClass) => {
 	const res = altered(env => prepareKeyForType('d_stash')(env).mkFresh('d_stash'))(currParentEnvBySysId)(domClass)(
 		() => {
 			const sysEnv = getSysEnv(domClass);
+			const bindEnv = getBindEnv(domClass);
 			const res = domF(domClass);
 			const { children, path } = getParentEnv(domClass);
 			const stashId = path;
 			sysEnv.idomByPath[path] = children;
+			const lastPath = sysEnv.stashes[stashId];
 			sysEnv.stashes[stashId] = path;
 			sysEnv.stashUsage[stashId] = 0;
 			return { stashId, res };
@@ -424,8 +477,9 @@ const d_stashImpl = (domF) => (domClass) => {
 const d_applyImpl = ({ stashId, res }) => (domClass) => {
 	const sysEnv = getSysEnv(domClass);
 	sysEnv.stashUsage[stashId] += 1;
+	// console.log(' on', { stashId });
 	const bindEnv = getBindEnv(domClass);
-	bindEnv.renderOffs.push(() => { sysEnv.stashUsage[stashId] -= 1; });
+	bindEnv.renderOffs.push(() => { /*console.log('off', { stashId });*/ sysEnv.stashUsage[stashId] -= 1; });
 	getParentEnv(domClass).children.push(
 		iStash(stashId)
 	);
@@ -439,6 +493,7 @@ const d_memoImpl = (getHash) => (a) => (domFA) => (domClass) => {
 	const { children: currChildren } = getParentEnv(domClass);
 	const res = altered(env => prepareKeyForType('d_memo')(env).mkFresh('d_memo'))(currParentEnvBySysId)(domClass)(
 		() => {
+			const { path } = getParentEnv(domClass);
 			bindEnv.used[path] = true;
 			bindEnv.offsByPath[path] = [() => {
 				delete sysEnv.hasByPathAndHash[path];
@@ -451,7 +506,6 @@ const d_memoImpl = (getHash) => (a) => (domFA) => (domClass) => {
 				));
 				delete sysEnv.mbeByPathAndHash[path];
 			}];
-			const { path } = getParentEnv(domClass);
 			const hasByHash = sysEnv.hasByPathAndHash[path] || {};
 			const domByHash = sysEnv.domByPathAndHash[path] || {};
 			const valByHash = sysEnv.valByPathAndHash[path] || {};
@@ -555,6 +609,10 @@ const run = (SNABBDOM) => (frp) => (env) => (domF) => (postRender) => {
 			fromIDOMtoVDOM = flatMap(toVDOMs);
 			const vdom = fromIDOMtoVDOM(rootIdom);
 			postRender(vdom);
+			// console.log('-------- stats!! ----------');
+			// console.log(Object.keys(idomByPath));
+			// console.log(Object.keys(stashes));
+			// console.log(stashUsage);
 			Object.keys(stashUsage).forEach((stashId) => {
 				if (stashUsage[stashId] > 0) { return; }
 				delete idomByPath[stashes[stashId]];
