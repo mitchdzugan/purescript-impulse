@@ -55,6 +55,8 @@ import Record as R
 import Impulse.DOM.Attrs
 import Impulse.DOM.ImpulseEl as El
 import Impulse.FRP as FRP
+import Impulse.FRP.Impl as FRPImpl
+import Impulse.DOM.Snabbdom as SnabbdomImpl
 
 -- TYPES ---------------------------
 
@@ -78,21 +80,58 @@ foreign import withAlteredEnvImpl :: forall e1 e2 c a. (e1 -> e2) -> (DOMClass e
 
 foreign import keyedImpl :: forall e c a. String -> (DOMClass e c -> a) -> DOMClass e c -> a
 
-foreign import createElementImpl :: forall e c a. String -> JSAttrs -> (DOMClass e c -> a) -> DOMClass e c -> El.ImpulseEl a
+foreign import createElementImpl_raw ::
+  forall e c a.
+  FRPImpl.FRPImpl ->
+  String ->
+  JSAttrs ->
+  (DOMClass e c -> a) ->
+  DOMClass e c ->
+  El.ImpulseEl a
+createElementImpl ::
+  forall e c a.
+  String ->
+  JSAttrs ->
+  (DOMClass e c -> a) ->
+  DOMClass e c ->
+  El.ImpulseEl a
+createElementImpl = createElementImpl_raw FRPImpl.impl
 
 foreign import textImpl :: forall e c. String -> DOMClass e c -> Unit
 
-foreign import e_collectImpl ::
+foreign import e_collectImpl_raw ::
+  forall e c1 c2 a b.
+  FRPImpl.FRPImpl ->
+  (c1 -> Collector a -> c2) ->
+  (c2 -> Collector a) ->
+  (FRP.Event a -> DOMClass e c2 -> b) ->
+  DOMClass e c1 ->
+  b
+e_collectImpl ::
   forall e c1 c2 a b.
   (c1 -> Collector a -> c2) ->
   (c2 -> Collector a) ->
   (FRP.Event a -> DOMClass e c2 -> b) ->
   DOMClass e c1 ->
   b
+e_collectImpl = e_collectImpl_raw FRPImpl.impl
 
 foreign import e_emitImpl :: forall e c a. (c -> Collector a) -> FRP.Event a -> DOMClass e c -> Unit
 
-foreign import s_bindDOMImpl :: forall e c a b. FRP.Signal a -> (a -> DOMClass e c -> b) -> DOMClass e c -> FRP.Signal b
+foreign import s_bindDOMImpl_raw ::
+  forall e c a b.
+  FRPImpl.FRPImpl ->
+  FRP.Signal a ->
+  (a -> DOMClass e c -> b) ->
+  DOMClass e c ->
+  FRP.Signal b
+s_bindDOMImpl ::
+  forall e c a b.
+  FRP.Signal a ->
+  (a -> DOMClass e c -> b) ->
+  DOMClass e c ->
+  FRP.Signal b
+s_bindDOMImpl = s_bindDOMImpl_raw FRPImpl.impl
 
 foreign import s_useImpl :: forall e c a. (FRP.SigBuild a) -> DOMClass e c -> FRP.Signal a
 
@@ -104,9 +143,31 @@ foreign import d_memoImpl :: forall e c a b. (a -> Int) -> a -> (a -> DOMClass e
 
 ------------------------------------
 
-foreign import attachImpl :: forall e a. String -> e -> (DOMClass e {} -> a) -> Effect (ImpulseAttachment a)
+foreign import attachImpl_raw ::
+  forall e a.
+  SnabbdomImpl.SnabbdomImpl ->
+  FRPImpl.FRPImpl ->
+  String ->
+  e ->
+  (DOMClass e {} -> a) ->
+  Effect (ImpulseAttachment a)
+attachImpl ::
+  forall e a.
+  String ->
+  e ->
+  (DOMClass e {} -> a) ->
+  Effect (ImpulseAttachment a)
+attachImpl = attachImpl_raw SnabbdomImpl.impl FRPImpl.impl
 
-foreign import toMarkupImpl :: forall e a. e -> (DOMClass e {} -> a) -> Effect (ImpulseSSR a)
+foreign import toMarkupImpl_raw ::
+  forall e a.
+  SnabbdomImpl.SnabbdomImpl ->
+  FRPImpl.FRPImpl ->
+  e ->
+  (DOMClass e {} -> a) ->
+  Effect (ImpulseSSR a)
+toMarkupImpl :: forall e a. e -> (DOMClass e {} -> a) -> Effect (ImpulseSSR a)
+toMarkupImpl = toMarkupImpl_raw SnabbdomImpl.impl FRPImpl.impl
 
 ------------------------------------
 

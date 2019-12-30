@@ -1,16 +1,5 @@
 "use strict";
 
-const frp = require('ps-impulse-impl');
-const h = require('snabbdom/h').default;
-const snabbdom = require('snabbdom');
-const patch = snabbdom.init([
-	require('snabbdom/modules/class').default,
-	require('snabbdom/modules/style').default,
-	require('snabbdom/modules/attributes').default,
-]);
-
-const SNABBDOM = { h, patch };
-
 const isOneWord = s => typeof s === 'string' && !s.trim().includes(' ');
 
 const flatMap = (f) => (a) => {
@@ -42,7 +31,7 @@ const setParentEnv = setSys(currParentEnvBySysId);
 const getEnv = getSys(currEnvBySysId);
 const setEnv = setSys(currEnvBySysId);
 
-const makeColl = () => {
+const makeColl = (frp) => {
 	const coll = {
 		es: {},
 		nextEId: 1,
@@ -72,15 +61,15 @@ const toArray = (list, carry) => {
 	return toArray(list.rest, carry);
 };
 
-const freshCollectors = (node) => {
+const freshCollectors = (frp, node) => {
 	if (!node) {
 		return {};
 	}
 
-	return node.addColl(freshCollectors(node.rest))(makeColl());
+	return node.addColl(freshCollectors(frp, node.rest))(makeColl(frp));
 };
 
-const mkBindEnv = () => ({
+const mkBindEnv = (frp) => ({
 	offsByPath: {},
 	used: {},
 	collectors: {},
@@ -89,12 +78,12 @@ const mkBindEnv = () => ({
 	refresh () {
 		this.renderOffs.forEach(off => off());
 		this.renderOffs = [];
-		this.collectors = freshCollectors(this.collectorSpecs);
+		this.collectors = freshCollectors(frp, this.collectorSpecs);
 		this.used = {};
 	},
 	mkFresh () {
-		const fresh = mkBindEnv();
-		fresh.collectors = freshCollectors(this.collectorSpecs);
+		const fresh = mkBindEnv(frp);
+		fresh.collectors = freshCollectors(frp, this.collectorSpecs);
 		fresh.collectorSpecs = this.collectorSpecs;
 		return fresh;
 	},
@@ -219,7 +208,7 @@ const keyedImpl = (key) => (domF) => (domClass) => {
 let createCount = 0;
 let flatMapCount = 0;
 // -- createElementImpl :: forall e c a. String -> Attrs -> (DOMClass e c -> a) -> DOMClass e c -> ImpulseEl a
-const createElementImpl = (tag) => (attrs) => (domF) => (domClass) => {
+const createElementImpl_raw = (frp) => (tag) => (attrs) => (domF) => (domClass) => {
 	const key = getParentEnv(domClass).nextKey;
 	const { innerRes, children, uniquePath } = altered(env => prepareKeyForType(tag, false)(env).mkFresh(tag))(currParentEnvBySysId)(domClass)(
 		() => {
@@ -274,9 +263,9 @@ const textImpl = (text) => (domClass) => {
 };
 
 // -- e_collectImpl :: forall e c1 c2 a b. (c1 -> Collector a -> c2) -> (c2 -> Collector a) -> (FRP.Event a -> DOMClass e c2 -> b) -> DOMClass e c1 -> b
-const e_collectImpl = (addCollector) => (getCollector) => (domFE) => (domClass) => {
+const e_collectImpl_raw = (frp) => (addCollector) => (getCollector) => (domFE) => (domClass) => {
 	getParentEnv(domClass).nextKey = null;
-	const coll = makeColl();
+	const coll = makeColl(frp);
 	const modBindEnv = (bindEnv) => Object.assign(
 		{},
 		bindEnv,
@@ -308,7 +297,7 @@ const e_emitImpl = (getCollector) => (e) => (domClass) => {
 };
 
 // -- s_bindDOMImpl :: forall e c a b. FRP.Signal a -> (a -> DOMClass e c -> b) -> DOMClass e c -> FRP.Signal b
-const s_bindDOMImpl = (s) => (domFS) => (domClass) => {
+const s_bindDOMImpl_raw = (frp) => (s) => (domFS) => (domClass) => {
 	getParentEnv(domClass).nextKey = null;
 	const e_res = frp.mkEvent();
 	const e_collectors = frp.mkEvent();
@@ -494,14 +483,14 @@ const d_memoImpl = (getHash) => (a) => (domFA) => (domClass) => {
 // TODO I really think postRender should work on IDOM instead of
 // VDOM but this is ok for now. this is because only client rendering
 // needs the snabbdom dependency, so only it should use it.
-const run = (env) => (domF) => (postRender) => {
+const run = (SNABBDOM) => (frp) => (env) => (domF) => (postRender) => {
 	const sysId = nextSysId;
 	nextSysId++;
 	const domClass = { sysId };
 	const e_el_mount = frp.mkEvent();
 	const e_render = frp.mkEvent();
 	const requestRender = () => frp.push()(e_render)();
-	const bindEnv = mkBindEnv();
+	const bindEnv = mkBindEnv(frp);
 	const sysEnv = {
 		nextStashId: 1,
 		stashes: {},
@@ -520,7 +509,7 @@ const run = (env) => (domF) => (postRender) => {
 	setBindEnv(bindEnv)(domClass);
 	setParentEnv(mkParentEnv(ROOT))(domClass);
 	const { destroy, signal } = frp.s_buildImpl(frp.s_constImpl())();
-	const resultSignal = s_bindDOMImpl(signal)(() => domF)(domClass);
+	const resultSignal = s_bindDOMImpl_raw(frp)(signal)(() => domF)(domClass);
 	const res = resultSignal.getVal();
 	const off = frp.consume(
 		() => () => {
@@ -586,9 +575,9 @@ const run = (env) => (domF) => (postRender) => {
 };
 
 // -- attachImpl :: forall e a. String -> e -> (DOMClass e {} -> a) -> Effect (ImpulseAttachment a)
-const attachImpl = (id) => (env) => (domF) => () => {
+const attachImpl_raw = (SNABBDOM) => (frp) => (id) => (env) => (domF) => () => {
 	let prev = document.getElementById(id);
-	return run(env)(domF)(
+	return run(SNABBDOM)(frp)(env)(domF)(
 		(vdom) => {
 			const curr = SNABBDOM.h('div', {}, vdom);
 			SNABBDOM.patch(prev, curr);
@@ -598,10 +587,10 @@ const attachImpl = (id) => (env) => (domF) => () => {
 };
 
 // -- toMarkupImpl :: forall e a. e -> (DOMClass e {} -> a) -> Effect (ImpulseSSR a)
-const toMarkupImpl = (env) => (domF) => () => {
+const toMarkupImpl_raw = (SNABBDOM) => (frp) => (env) => (domF) => () => {
 	let vdomsResolve;
 	const vdomsPromise = new Promise((resolve) => { vdomsResolve = resolve; });
-	const { res, detach } = run(env)(domF)(vdomsResolve);
+	const { res, detach } = run(SNABBDOM)(frp)(env)(domF)(vdomsResolve);
 	return vdomsPromise.then((vdoms) => {
 		let markup = "";
 		const vdomProcess = (vdom) => {
@@ -643,20 +632,21 @@ const toMarkupImpl = (env) => (domF) => () => {
 
 ///////////////////////////////////////////////////////////////////////////////
 
+exports.createElementImpl_raw = createElementImpl_raw;
+exports.e_collectImpl_raw = e_collectImpl_raw;
+exports.s_bindDOMImpl_raw = s_bindDOMImpl_raw;
+exports.attachImpl_raw = attachImpl_raw;
+exports.toMarkupImpl_raw = toMarkupImpl_raw;
+
 exports.keyedImpl = keyedImpl;
 exports.envImpl = envImpl;
 exports.withAlteredEnvImpl = withAlteredEnvImpl;
-exports.createElementImpl = createElementImpl;
 exports.textImpl = textImpl;
-exports.e_collectImpl = e_collectImpl;
 exports.e_emitImpl = e_emitImpl;
-exports.s_bindDOMImpl = s_bindDOMImpl;
 exports.s_useImpl = s_useImpl;
 exports.d_stashImpl = d_stashImpl;
 exports.d_applyImpl = d_applyImpl;
 exports.d_memoImpl = d_memoImpl;
-exports.attachImpl = attachImpl;
-exports.toMarkupImpl = toMarkupImpl;
 
 exports.stashRes = ({ res }) => res;
 exports.attachRes = ({ res }) => res;

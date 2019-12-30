@@ -34,6 +34,7 @@ import Data.Traversable as TRV
 import Effect (Effect)
 import Effect.Ref as Ref
 import Impulse.FRP.Event as Event
+import Impulse.FRP.Impl as FRPImpl
 
 foreign import data SigBuild :: Type -> Type
 foreign import data SigClass :: Type
@@ -43,31 +44,81 @@ foreign import data SubRes :: Type -> Type
 type SigBuilder a = Reader SigClass (Signal a)
 
 
-foreign import s_destroy :: forall a. Signal a -> Effect Unit
-foreign import s_subRes :: forall a. SubRes a -> a
-foreign import s_unsub :: forall a. SubRes a -> Effect Unit
-foreign import s_sub :: forall a b. (a -> Effect b) -> Signal a -> Effect (SubRes b)
-foreign import s_inst :: forall a. Signal a -> Effect a
-foreign import s_changed :: forall a. Signal a -> Event.Event a
-foreign import s_tagWith :: forall a b c. (a -> b -> c) -> Event.Event a -> Signal b -> Event.Event c
+foreign import s_destroy_raw :: forall a. FRPImpl.FRPImpl -> Signal a -> Effect Unit
+s_destroy :: forall a. Signal a -> Effect Unit
+s_destroy = s_destroy_raw FRPImpl.impl
 
-foreign import s_fromImpl :: forall a. Event.Event a -> a -> SigClass -> Signal a
-foreign import s_fmapImpl :: forall a b. (a -> b) -> Signal a -> SigClass -> Signal b
-foreign import s_constImpl :: forall a. a -> SigClass -> Signal a
-foreign import s_zipWithImpl :: forall a b c. (a -> b -> c) -> Signal a -> Signal b -> SigClass -> Signal c
-foreign import s_flattenImpl :: forall a. Signal (Signal a) -> SigClass -> Signal a
-foreign import s_dedupImpl :: forall a. (a -> a -> Boolean) -> Signal a -> SigClass -> Signal a
-foreign import s_builderInstImpl :: forall a. Signal a -> SigClass -> a
+foreign import s_subRes_raw :: forall a. FRPImpl.FRPImpl -> SubRes a -> a
+s_subRes :: forall a. SubRes a -> a
+s_subRes = s_subRes_raw FRPImpl.impl
+
+foreign import s_unsub_raw :: forall a. FRPImpl.FRPImpl -> SubRes a -> Effect Unit
+s_unsub :: forall a. SubRes a -> Effect Unit
+s_unsub = s_unsub_raw FRPImpl.impl
+
+foreign import s_sub_raw :: forall a b. FRPImpl.FRPImpl -> (a -> Effect b) -> Signal a -> Effect (SubRes b)
+s_sub :: forall a b. (a -> Effect b) -> Signal a -> Effect (SubRes b)
+s_sub = s_sub_raw FRPImpl.impl
+
+foreign import s_inst_raw :: forall a. FRPImpl.FRPImpl -> Signal a -> Effect a
+s_inst :: forall a. Signal a -> Effect a
+s_inst = s_inst_raw FRPImpl.impl
+
+foreign import s_changed_raw :: forall a. FRPImpl.FRPImpl -> Signal a -> Event.Event a
+s_changed :: forall a. Signal a -> Event.Event a
+s_changed = s_changed_raw FRPImpl.impl
+
+foreign import s_tagWith_raw :: forall a b c. FRPImpl.FRPImpl -> (a -> b -> c) -> Event.Event a -> Signal b -> Event.Event c
+s_tagWith :: forall a b c. (a -> b -> c) -> Event.Event a -> Signal b -> Event.Event c
+s_tagWith = s_tagWith_raw FRPImpl.impl
+
+foreign import s_fromImpl_raw :: forall a. FRPImpl.FRPImpl -> Event.Event a -> a -> SigClass -> Signal a
+s_fromImpl :: forall a. Event.Event a -> a -> SigClass -> Signal a
+s_fromImpl = s_fromImpl_raw FRPImpl.impl
+
+foreign import s_fmapImpl_raw :: forall a b. FRPImpl.FRPImpl -> (a -> b) -> Signal a -> SigClass -> Signal b
+s_fmapImpl :: forall a b. (a -> b) -> Signal a -> SigClass -> Signal b
+s_fmapImpl = s_fmapImpl_raw FRPImpl.impl
+
+foreign import s_constImpl_raw :: forall a. FRPImpl.FRPImpl -> a -> SigClass -> Signal a
+s_constImpl :: forall a. a -> SigClass -> Signal a
+s_constImpl = s_constImpl_raw FRPImpl.impl
+
+foreign import s_zipWithImpl_raw :: forall a b c. FRPImpl.FRPImpl -> (a -> b -> c) -> Signal a -> Signal b -> SigClass -> Signal c
+s_zipWithImpl :: forall a b c. (a -> b -> c) -> Signal a -> Signal b -> SigClass -> Signal c
+s_zipWithImpl = s_zipWithImpl_raw FRPImpl.impl
+
+foreign import s_flattenImpl_raw :: forall a. FRPImpl.FRPImpl -> Signal (Signal a) -> SigClass -> Signal a
+s_flattenImpl :: forall a. Signal (Signal a) -> SigClass -> Signal a
+s_flattenImpl = s_flattenImpl_raw FRPImpl.impl
+
+foreign import s_dedupImpl_raw :: forall a. FRPImpl.FRPImpl -> (a -> a -> Boolean) -> Signal a -> SigClass -> Signal a
+s_dedupImpl :: forall a. (a -> a -> Boolean) -> Signal a -> SigClass -> Signal a
+s_dedupImpl = s_dedupImpl_raw FRPImpl.impl
+
+foreign import s_builderInstImpl_raw :: forall a. FRPImpl.FRPImpl -> Signal a -> SigClass -> a
+s_builderInstImpl :: forall a. Signal a -> SigClass -> a
+s_builderInstImpl = s_builderInstImpl_raw FRPImpl.impl
 
 s_tag :: forall a b. Event.Event a -> Signal b -> Event.Event b
 s_tag = s_tagWith (\_ b -> b)
 
-foreign import s_buildImpl :: forall a. (SigClass -> Signal a) -> SigBuild a
-foreign import sigBuildToRecordImpl ::
+foreign import s_buildImpl_raw :: forall a. FRPImpl.FRPImpl -> (SigClass -> Signal a) -> SigBuild a
+s_buildImpl :: forall a. (SigClass -> Signal a) -> SigBuild a
+s_buildImpl = s_buildImpl_raw FRPImpl.impl
+
+foreign import sigBuildToRecordImpl_raw ::
+  forall a.
+  FRPImpl.FRPImpl ->
+  (Effect Unit -> Signal a -> { destroy :: Effect Unit, signal :: Signal a }) ->
+  SigBuild a ->
+  Effect { destroy :: Effect Unit, signal :: Signal a }
+sigBuildToRecordImpl ::
   forall a.
   (Effect Unit -> Signal a -> { destroy :: Effect Unit, signal :: Signal a }) ->
   SigBuild a ->
   Effect { destroy :: Effect Unit, signal :: Signal a }
+sigBuildToRecordImpl = sigBuildToRecordImpl_raw FRPImpl.impl
 
 s_builderInst :: forall a. Signal a -> Reader SigClass a
 s_builderInst s = ask <#> s_builderInstImpl s
