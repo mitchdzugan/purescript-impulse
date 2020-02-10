@@ -317,6 +317,14 @@ const e_collectImpl_raw = (frp) => (addCollector) => (getCollector) => (domFE) =
 	);
 };
 
+// -- e_consumeImpl :: forall e c a. (a -> Effect Unit) -> Event a -> DOMClass e c -> Unit
+const e_consumeImpl_raw = (frp) => (f) => (e) => (domClass) => {
+	const bindEnv = getBindEnv(domClass);
+	const off = frp.consume(a => f(a))(e)();
+	bindEnv.renderOffs.push(off);
+	return;
+};
+
 // -- e_emitImpl :: forall e c a. (c -> Collector a) -> FRP.Event a -> DOMClass e c -> Unit
 const e_emitImpl = (getCollector) => (e) => (domClass) => {
 	const bindEnv = getBindEnv(domClass);
@@ -700,6 +708,7 @@ exports.keyedImpl = keyedImpl;
 exports.envImpl = envImpl;
 exports.withAlteredEnvImpl = withAlteredEnvImpl;
 exports.textImpl = textImpl;
+exports.e_consumeImpl_raw = e_consumeImpl_raw;
 exports.e_emitImpl = e_emitImpl;
 exports.s_useImpl = s_useImpl;
 exports.d_stashImpl = d_stashImpl;

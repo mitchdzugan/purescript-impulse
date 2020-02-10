@@ -9,6 +9,7 @@ You can edit this file as you like.
     , "debug"
     , "dom-indexed"
     , "effect"
+    , "profunctor-lenses"
     , "psci-support"
     , "record"
     , "transformers"
