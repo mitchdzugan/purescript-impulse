@@ -137,6 +137,9 @@ const dedupImpl = (eq) => (event) => {
 	);
 };
 
+// -- once :: forall a. a -> Event a
+const once = (a) => mkEventJS((pushSelf) => setTimeout(() => pushSelf(a), 0));
+
 // -- never :: forall a. Event a
 const never = mkEventJS(() => {
 	never.subscribers = {};
@@ -464,6 +467,7 @@ exports.impl = {
 	join,
 	dedupImpl,
 	preempt,
+	once,
 	never,
 	tagWith,
 	timer,

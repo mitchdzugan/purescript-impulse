@@ -640,14 +640,15 @@ const run = (SNABBDOM) => (frp) => (env) => (domF) => (postRender) => {
 	return { res, detach };
 };
 
-// -- attachImpl :: forall e a. String -> e -> (DOMClass e {} -> a) -> Effect (ImpulseAttachment a)
-const attachImpl_raw = (SNABBDOM) => (frp) => (id) => (env) => (domF) => () => {
+// -- attachImpl :: forall e a. String -> e -> Effect Unit -> (DOMClass e {} -> a) -> Effect (ImpulseAttachment a)
+const attachImpl_raw = (SNABBDOM) => (frp) => (id) => (env) => (postRender) => (domF) => () => {
 	let prev = document.getElementById(id);
 	return run(SNABBDOM)(frp)(env)(domF)(
 		(vdom) => {
 			const curr = SNABBDOM.h('div', {}, vdom);
 			SNABBDOM.patch(prev, curr);
-			prev = curr;
+			  prev = curr;
+        postRender();
 		}
 	);
 };
@@ -735,15 +736,3 @@ exports.toJSAttrs = (fromMaybe) => (raw_attrs) => {
 };
 
 exports._effImpl = (eff) => () => eff();
-
-let div, button, span, text, s_bindDOM, s_reduce ;
-
-const ui = () => {
-	const d_button = button({}, () => {
-		text('Click Me!');
-	});
-	const s_clicks = s_reduce(d_button.onClick, (agg, onclickevent) => agg + 1, 0);
-	s_bindDOM(s_clicks, (clicks) => {
-		span({}, text(`Number of clicks: ${clicks}`));
-	});
-};

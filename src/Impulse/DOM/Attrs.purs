@@ -14,6 +14,10 @@ type DOMAttrs = { className :: M.Maybe String
                 , disabled :: M.Maybe Boolean
                 , value :: M.Maybe String
                 , selected :: M.Maybe Boolean
+                , controls :: M.Maybe Boolean
+                , width :: M.Maybe Int
+                , height :: M.Maybe Int
+                , src :: M.Maybe String
                 }
 type Attrs = S.State DOMAttrs Unit
 
@@ -51,9 +55,21 @@ href :: String -> Attrs
 href uri =
   S.modify_ _ { href = M.Just uri }
 
+src :: String -> Attrs
+src uri =
+  S.modify_ _ { src = M.Just uri }
+
 rows :: Int -> Attrs
 rows n =
   S.modify_ _ { rows = M.Just n }
+
+width :: Int -> Attrs
+width n =
+  S.modify_ _ { width = M.Just n }
+
+height :: Int -> Attrs
+height n =
+  S.modify_ _ { height = M.Just n }
 
 disabled :: Boolean -> Attrs
 disabled b =
@@ -73,6 +89,12 @@ selected true =
 selected false =
   S.modify_ _ { selected = M.Nothing }
 
+controls :: Boolean -> Attrs
+controls true =
+  S.modify_ _ { controls = M.Just $ true }
+controls false =
+  S.modify_ _ { controls = M.Nothing }
+
 mkAttrs :: Attrs -> DOMAttrs
 mkAttrs m =
   S.execState m { className: M.Nothing
@@ -84,4 +106,8 @@ mkAttrs m =
                 , disabled: M.Nothing
                 , value: M.Nothing
                 , selected: M.Nothing
+                , controls: M.Nothing
+                , width: M.Nothing
+                , height: M.Nothing
+                , src: M.Nothing
                 }

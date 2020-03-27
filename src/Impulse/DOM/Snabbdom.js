@@ -1,6 +1,6 @@
 // This is a compiled version of https://github.com/snabbdom/snabbdom
 // the compiled version is included in this source so that this project
-// contains to external dependencies that need to be managed separately
+// contains no external dependencies that need to be managed separately
 // by npm
 
 exports.impl = {};

@@ -157,12 +157,14 @@ foreign import attachImpl_raw ::
   FRPImpl.FRPImpl ->
   String ->
   e ->
+  Effect Unit ->
   (DOMClass e {} -> a) ->
   Effect (ImpulseAttachment a)
 attachImpl ::
   forall e a.
   String ->
   e ->
+  Effect Unit ->
   (DOMClass e {} -> a) ->
   Effect (ImpulseAttachment a)
 attachImpl = attachImpl_raw SnabbdomImpl.impl FRPImpl.impl
@@ -295,8 +297,8 @@ d_memo v inner = ask <#> d_memoImpl H.hash v (runReader <<< inner)
 
 ------------------------------------
 
-attach :: forall e a. String -> e -> DOM e {} a -> Effect (ImpulseAttachment a)
-attach id envInit dom = attachImpl id envInit $ runReader dom
+attach :: forall e a. String -> e -> Effect Unit -> DOM e {} a -> Effect (ImpulseAttachment a)
+attach id envInit postRender dom = attachImpl id envInit postRender $ runReader dom
 
 toMarkup :: forall e a. e -> DOM e {} a -> Effect (ImpulseSSR a)
 toMarkup envInit dom = toMarkupImpl envInit $ runReader dom
