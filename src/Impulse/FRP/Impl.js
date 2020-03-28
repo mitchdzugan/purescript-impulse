@@ -137,6 +137,9 @@ const dedupImpl = (eq) => (event) => {
 	);
 };
 
+// -- once :: forall a. a -> Event a
+const once = (a) => mkEventJS((pushSelf) => setTimeout(() => pushSelf(a), 0));
+
 // -- never :: forall a. Event a
 const never = mkEventJS(() => {
 	never.subscribers = {};
@@ -245,7 +248,7 @@ const deferOff = (ms) => (event) => {
 		(pushSelf) => {
 			softOn = true;
 			if (!isOn) {
-				offFn = consumeJS(pushSelf)(event)
+				offFn = consumeJS(v => softOn && pushSelf(v))(event);
 				isOn = true;
 			}
 			return () => {
@@ -259,13 +262,13 @@ const deferOff = (ms) => (event) => {
 						isOn = false;
 						offFn();
 						offFn = () => {};
-					}, 
+					},
 					ms
 				);
 			};
 		}
-	)
-}
+	);
+};
 
 // -- tagWith :: forall a b c. (a -> b -> c) -> Event a -> Event b -> c -> Event c
 const tagWith = (f) => (tagged) => (tagger) => {
@@ -464,6 +467,7 @@ exports.impl = {
 	join,
 	dedupImpl,
 	preempt,
+	once,
 	never,
 	tagWith,
 	timer,

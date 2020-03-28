@@ -12,6 +12,7 @@ module Impulse.FRP.Signal
        , s_sub
        , s_inst
        , s_changed
+       , s_filter
        , s_tagWith
        , s_tag
        , s_reduce
@@ -128,6 +129,11 @@ s_from e i = ask <#> s_fromImpl e i
 
 s_fmap :: forall a b. (a -> b) -> Signal a -> SigBuilder b
 s_fmap f s = ask <#> s_fmapImpl f s
+
+s_filter :: forall a. (a -> Boolean) -> Signal a -> SigBuilder a
+s_filter pred s = do
+  curr <- s_builderInst s
+  flip s_from curr $ Event.filter pred $ s_changed s
 
 s_const :: forall a. a -> SigBuilder a
 s_const v = ask <#> s_constImpl v

@@ -12,7 +12,7 @@ module Impulse.DOM.API
        -- events
        , e_collect
        , e_emit
-       -- , e_consume (probably?)
+       , e_consume
        -- misc
        , d_memo
        , d_stash
@@ -116,6 +116,14 @@ e_collectImpl ::
   b
 e_collectImpl = e_collectImpl_raw FRPImpl.impl
 
+foreign import e_consumeImpl_raw :: 
+  forall e c a.
+  FRPImpl.FRPImpl -> (a -> Effect Unit) -> FRP.Event a -> DOMClass e c -> Unit
+e_consumeImpl :: 
+  forall e c a.
+  (a -> Effect Unit) -> FRP.Event a -> DOMClass e c -> Unit
+e_consumeImpl = e_consumeImpl_raw FRPImpl.impl
+
 foreign import e_emitImpl :: forall e c a. (c -> Collector a) -> FRP.Event a -> DOMClass e c -> Unit
 
 foreign import s_bindDOMImpl_raw ::
@@ -149,12 +157,14 @@ foreign import attachImpl_raw ::
   FRPImpl.FRPImpl ->
   String ->
   e ->
+  Effect Unit ->
   (DOMClass e {} -> a) ->
   Effect (ImpulseAttachment a)
 attachImpl ::
   forall e a.
   String ->
   e ->
+  Effect Unit ->
   (DOMClass e {} -> a) ->
   Effect (ImpulseAttachment a)
 attachImpl = attachImpl_raw SnabbdomImpl.impl FRPImpl.impl
@@ -222,8 +232,14 @@ e_emit ::
   FRP.Event a ->
   DOM e (Record c2) Unit
 e_emit proxy event = do
-  pure unit
   ask <#> e_emitImpl (R.get proxy) event
+
+e_consume :: 
+  forall e c a.
+  (a -> Effect Unit) -> FRP.Event a -> DOM e c Unit
+e_consume f e = do
+  ask <#> e_consumeImpl f e
+
 
 s_bindDOM :: forall e c a b. FRP.Signal a -> (a -> DOM e c b) -> DOM e c (FRP.Signal b)
 s_bindDOM s inner = ask <#> s_bindDOMImpl s (runReader <<< inner)
@@ -281,8 +297,8 @@ d_memo v inner = ask <#> d_memoImpl H.hash v (runReader <<< inner)
 
 ------------------------------------
 
-attach :: forall e a. String -> e -> DOM e {} a -> Effect (ImpulseAttachment a)
-attach id envInit dom = attachImpl id envInit $ runReader dom
+attach :: forall e a. String -> e -> Effect Unit -> DOM e {} a -> Effect (ImpulseAttachment a)
+attach id envInit postRender dom = attachImpl id envInit postRender $ runReader dom
 
 toMarkup :: forall e a. e -> DOM e {} a -> Effect (ImpulseSSR a)
 toMarkup envInit dom = toMarkupImpl envInit $ runReader dom

@@ -16,6 +16,7 @@ module Impulse.FRP.Event
        , never
        , debounce
        , throttle
+       , preempt
        ) where
 
 import Prelude
@@ -81,6 +82,9 @@ dedup = dedupImpl (==)
 foreign import preempt_raw :: forall a b. FRPImpl.FRPImpl -> (b -> Event a) -> (Event a -> b) -> b
 preempt :: forall a b. (b -> Event a) -> (Event a -> b) -> b
 preempt = preempt_raw FRPImpl.impl
+
+preempt_ :: forall a. (Event a -> Event a) -> Event a
+preempt_ = preempt (\e -> e)
 
 foreign import debounce_raw :: forall a. FRPImpl.FRPImpl -> Int -> Event a -> Event a
 debounce :: forall a. Int -> Event a -> Event a
